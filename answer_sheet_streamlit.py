@@ -306,8 +306,8 @@ class CRNN(nn.Module):
 def load_extractor():
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else "."
-        yolo_improved_path = os.path.join(script_dir, "weights.pt")
-        yolo_fallback_path = os.path.join(script_dir, "improved_weights.pt")
+        yolo_improved_path = os.path.join(script_dir, "improved_weights.pt")
+        yolo_fallback_path = os.path.join(script_dir, "weights.pt")
         register_crnn_path = os.path.join(script_dir, "best_crnn_model.pth")
         subject_crnn_path = os.path.join(script_dir, "best_subject_code_model_fulldataset.pth")
 
