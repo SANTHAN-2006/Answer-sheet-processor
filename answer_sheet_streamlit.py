@@ -264,49 +264,56 @@ class MoodleAPI:
         self.timeout = config.get("timeout", 30)
 
     def upload_file(self, file_path: str) -> Tuple[bool, Optional[int], str]:
-        """Upload file to Moodle draft area"""
-        if not os.path.exists(file_path):
-            return False, None, f"File not found: {file_path}"
-
-        filename = os.path.basename(file_path)
-
-        # Determine MIME type
-        if filename.lower().endswith('.pdf'):
-            mimetype = 'application/pdf'
-        elif filename.lower().endswith(('.jpg', '.jpeg')):
-            mimetype = 'image/jpeg'
-        elif filename.lower().endswith('.png'):
-            mimetype = 'image/png'
-        else:
-            mimetype = 'application/octet-stream'
-
-        try:
-            with open(file_path, 'rb') as f:
-                files = {'file_1': (filename, f, mimetype)}
-                data = {'token': self.token}
-
-                response = requests.post(
-                    self.url,
-                    files=files,
-                    data=data,
-                    timeout=self.timeout
-                )
-                response.raise_for_status()
-
-                result = response.json()
-
-                if isinstance(result, list) and len(result) > 0:
-                    itemid = result[0].get('itemid')
-                    if itemid:
-                        return True, itemid, "File uploaded successfully"
-                    else:
-                        return False, None, "No item ID returned"
+    """Upload file to Moodle draft area"""
+    if not os.path.exists(file_path):
+        return False, None, f"File not found: {file_path}"
+    
+    filename = os.path.basename(file_path)
+    
+    # Determine MIME type
+    if filename.lower().endswith('.pdf'):
+        mimetype = 'application/pdf'
+    elif filename.lower().endswith(('.jpg', '.jpeg')):
+        mimetype = 'image/jpeg'
+    elif filename.lower().endswith('.png'):
+        mimetype = 'image/png'
+    else:
+        mimetype = 'application/octet-stream'
+    
+    try:
+        with open(file_path, 'rb') as f:
+            files = {'file_1': (filename, f, mimetype)}
+            data = {'token': self.token}
+            
+            # ✅ CHANGE THIS LINE:
+            upload_url = self.url.replace(
+                "/webservice/rest/server.php",
+                "/webservice/upload.php"
+            )
+            
+            response = requests.post(
+                upload_url,  # ✅ Use upload_url instead of self.url
+                files=files,
+                data=data,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            if isinstance(result, list) and len(result) > 0:
+                itemid = result[0].get('itemid')
+                if itemid:
+                    return True, itemid, "File uploaded successfully"
                 else:
-                    error_msg = result.get('message', 'Unexpected response')
-                    return False, None, error_msg
+                    return False, None, "No item ID returned"
+            else:
+                error_msg = result.get('message', 'Unexpected response')
+                return False, None, error_msg
+                
+    except Exception as e:
+        return False, None, f"Upload exception: {str(e)}"
 
-        except Exception as e:
-            return False, None, f"Upload exception: {str(e)}"
 
     def submit_assignment(self, itemid: int, register_num: str, subject_code: str) -> Tuple[bool, str]:
         """Submit assignment with uploaded file"""
