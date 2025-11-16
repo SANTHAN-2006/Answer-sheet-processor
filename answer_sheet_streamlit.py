@@ -17,6 +17,7 @@ from datetime import datetime
 import json
 import requests
 from typing import Optional, Tuple, List, Dict
+import base64  # For potential base64 encoding if needed
 
 # ============================================
 # MOODLE CONFIGURATION
@@ -24,7 +25,7 @@ from typing import Optional, Tuple, List, Dict
 MOODLE_CONFIG = {
     "url": "https://05f244c11755.ngrok-free.app/webservice/rest/server.php",
     "token": "c53569d516cd601cb78849cd64f59eaa",
-    "assignment_id": 1, 
+    "assignment_id": 1,
     "user_id": 2,
     "timeout": 30
 }
@@ -49,11 +50,9 @@ def local_css():
             max-width: 1200px;
             margin: 0 auto;
         }
-
         [data-testid="stHeader"] button {
             display: none !important;
         }
-
         .stButton>button {
             font-weight: 500;
             border-radius: 10px;
@@ -67,7 +66,6 @@ def local_css():
             width: 100%;
             font-size: 1.1rem;
         }
-
         .success-box {
             background-color: #d4edda;
             border-color: #c3e6cb;
@@ -100,7 +98,6 @@ def local_css():
             border-radius: 0.25rem;
             margin-bottom: 1rem;
         }
-
         .result-card {
             background-color: var(--secondary-background-color);
             border-radius: 10px;
@@ -108,7 +105,6 @@ def local_css():
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             margin-bottom: 20px;
         }
-
         .header-container {
             background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%);
             padding: 20px;
@@ -116,20 +112,17 @@ def local_css():
             margin-bottom: 30px;
             color: white;
         }
-
         .camera-container {
             border: 2px dashed #ccc;
             border-radius: 10px;
             padding: 15px;
             background-color: var(--secondary-background-color);
         }
-
         .image-container {
             border-radius: 10px;
             overflow: hidden;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-
         .history-item {
             padding: 15px;
             border-radius: 8px;
@@ -139,13 +132,11 @@ def local_css():
             transition: all 0.3s;
             border-left: 5px solid var(--primary-color);
         }
-
         .history-item:hover {
             filter: brightness(95%);
             transform: translateY(-2px);
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-
         .extracted-output {
             background-color: var(--secondary-background-color);
             border: 2px solid var(--primary-color);
@@ -154,7 +145,6 @@ def local_css():
             margin-top: 20px;
             font-family: 'Courier New', Courier, monospace;
         }
-
         .footer {
             margin-top: 50px;
             padding: 20px;
@@ -165,7 +155,6 @@ def local_css():
             box-shadow: 0 -2px 4px rgba(0,0,0,0.05);
             width: 100%;
         }
-
         @media (max-width: 768px) {
             .footer { padding: 15px; font-size: 0.8rem; }
             .stButton>button { padding: 0.5rem 1rem; font-size: 1rem; }
@@ -266,25 +255,21 @@ class CRNN(nn.Module):
 # ============================================
 class MoodleAPI:
     """Handle all Moodle API interactions"""
-    
+
     def __init__(self, config: Dict):
         self.url = config["url"]
-        self.upload_url = config["url"].replace(
-            "/webservice/rest/server.php",
-            "/webservice/upload.php"
-        )
         self.token = config["token"]
         self.assignment_id = config["assignment_id"]
         self.user_id = config["user_id"]
         self.timeout = config.get("timeout", 30)
-    
+
     def upload_file(self, file_path: str) -> Tuple[bool, Optional[int], str]:
         """Upload file to Moodle draft area"""
         if not os.path.exists(file_path):
             return False, None, f"File not found: {file_path}"
-        
+
         filename = os.path.basename(file_path)
-        
+
         # Determine MIME type
         if filename.lower().endswith('.pdf'):
             mimetype = 'application/pdf'
@@ -294,22 +279,22 @@ class MoodleAPI:
             mimetype = 'image/png'
         else:
             mimetype = 'application/octet-stream'
-        
+
         try:
             with open(file_path, 'rb') as f:
                 files = {'file_1': (filename, f, mimetype)}
                 data = {'token': self.token}
-                
+
                 response = requests.post(
-                    self.upload_url,
+                    self.url,
                     files=files,
                     data=data,
                     timeout=self.timeout
                 )
                 response.raise_for_status()
-                
+
                 result = response.json()
-                
+
                 if isinstance(result, list) and len(result) > 0:
                     itemid = result[0].get('itemid')
                     if itemid:
@@ -319,10 +304,10 @@ class MoodleAPI:
                 else:
                     error_msg = result.get('message', 'Unexpected response')
                     return False, None, error_msg
-                    
+
         except Exception as e:
             return False, None, f"Upload exception: {str(e)}"
-    
+
     def submit_assignment(self, itemid: int, register_num: str, subject_code: str) -> Tuple[bool, str]:
         """Submit assignment with uploaded file"""
         submission_data = {
@@ -340,7 +325,7 @@ class MoodleAPI:
             """,
             "plugindata[onlinetext_editor][format]": "1"
         }
-        
+
         try:
             response = requests.post(
                 self.url,
@@ -348,27 +333,27 @@ class MoodleAPI:
                 timeout=self.timeout
             )
             response.raise_for_status()
-            
+
             result = response.json()
-            
+
             # Check for errors
             if isinstance(result, dict) and "exception" in result:
                 return False, f"Moodle error: {result.get('message', 'Unknown error')}"
-            
+
             # Empty array = success
             if result is None or (isinstance(result, list) and len(result) == 0):
                 return True, "Assignment submitted successfully!"
-            
+
             # Check warnings
             if isinstance(result, dict) and "warnings" in result:
                 if result["warnings"]:
                     return True, f"Submitted with warnings: {result['warnings']}"
-            
+
             return True, "Assignment submitted successfully!"
-            
+
         except Exception as e:
             return False, f"Submission error: {str(e)}"
-    
+
     def get_submission_status(self) -> Tuple[bool, Dict]:
         """Get current submission status"""
         try:
@@ -378,17 +363,17 @@ class MoodleAPI:
                 "moodlewsrestformat": "json",
                 "assignmentids[0]": str(self.assignment_id)
             }
-            
+
             response = requests.post(self.url, data=params, timeout=self.timeout)
             response.raise_for_status()
-            
+
             result = response.json()
-            
+
             if isinstance(result, dict) and "exception" in result:
                 return False, {"error": result.get("message", "Unknown error")}
-            
+
             return True, result
-            
+
         except Exception as e:
             return False, {"error": str(e)}
 
@@ -396,23 +381,23 @@ def submit_to_moodle_workflow(image_path: str, register_number: str, subject_cod
     """Complete workflow for submitting to Moodle"""
     try:
         moodle = MoodleAPI(MOODLE_CONFIG)
-        
+
         st.info("📤 Step 1/2: Uploading file to Moodle...")
         success, item_id, message = moodle.upload_file(image_path)
-        
+
         if not success:
             return False, f"Upload failed: {message}"
-        
+
         st.success(f"File uploaded! Item ID: {item_id}")
-        
+
         st.info("📝 Step 2/2: Submitting assignment...")
         success, message = moodle.submit_assignment(item_id, register_number, subject_code)
-        
+
         if not success:
             return False, message
-        
+
         return True, message
-        
+
     except Exception as e:
         return False, f"Unexpected error during submission: {str(e)}"
 
@@ -421,10 +406,10 @@ def submit_to_moodle_workflow(image_path: str, register_number: str, subject_cod
 # ============================================
 class AnswerSheetExtractor:
     def __init__(self, yolo_improved_path, yolo_fallback_path, register_crnn_path, subject_crnn_path):
-        self.script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
+        script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else "."
         
         for dir_name in ["cropped_register_numbers", "cropped_subject_codes", "results", "uploads", "captures"]:
-            os.makedirs(os.path.join(self.script_dir, dir_name), exist_ok=True)
+            os.makedirs(os.path.join(script_dir, dir_name), exist_ok=True)
         
         try:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -441,7 +426,7 @@ class AnswerSheetExtractor:
         
         self.register_char_map = {0: '', **{i: str(i-1) for i in range(1, 11)}}
         self.subject_char_map = {0: '', **{i: str(i-1) for i in range(1, 11)}, **{i: chr(i - 11 + ord('A')) for i in range(11, 37)}}
-    
+
     def _load_yolo_models(self, improved_path, fallback_path):
         try:
             if not os.path.exists(improved_path):
@@ -455,7 +440,7 @@ class AnswerSheetExtractor:
             self.yolo_fallback_model.to(self.device)
         except Exception as e:
             raise RuntimeError(f"Failed to load YOLO models: {e}")
-    
+
     def _load_crnn_models(self, register_path, subject_path):
         self.register_crnn_model = CRNN(num_classes=11)
         self.register_crnn_model.to(self.device)
@@ -491,7 +476,7 @@ class AnswerSheetExtractor:
             transforms.ToTensor(),
             transforms.Normalize((0.5,), (0.5,))
         ])
-    
+
     def detect_regions(self, image_path, model, model_name):
         image = cv2.imread(image_path)
         if image is None:
@@ -526,7 +511,7 @@ class AnswerSheetExtractor:
             cv2.rectangle(overlay, (x1, y1), (x2, y2), color, 2)
             text_y = y1 - 10 if y1 > 20 else y1 + 20
             cv2.putText(overlay, f"{label} {confidence:.2f}", (x1, text_y),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             
             padding = 10
             padded_x1 = max(0, x1 - padding)
@@ -535,8 +520,9 @@ class AnswerSheetExtractor:
             padded_y2 = min(h, y2 + padding)
             
             cropped_region = image[padded_y1:padded_y2, padded_x1:padded_x2]
-            save_dir = os.path.join(self.script_dir, 
-                                   "cropped_register_numbers" if label == "RegisterNumber" else "cropped_subject_codes")
+            script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else "."
+            save_dir = os.path.join(script_dir,
+                                    "cropped_register_numbers" if label == "RegisterNumber" else "cropped_subject_codes")
             save_path = os.path.join(save_dir, f"{label.lower()}{model_name}{uuid.uuid4().hex}.jpg")
             cv2.imwrite(save_path, cropped_region)
             
@@ -545,10 +531,10 @@ class AnswerSheetExtractor:
             elif label == "SubjectCode" and confidence > 0.2:
                 subject_regions.append((save_path, confidence))
         
-        overlay_path = os.path.join(self.script_dir, "results", f"overlay_{model_name}_{uuid.uuid4().hex}.jpg")
+        overlay_path = os.path.join(script_dir, "results", f"overlay_{model_name}_{uuid.uuid4().hex}.jpg")
         cv2.imwrite(overlay_path, overlay)
         return register_regions, subject_regions, overlay_path
-    
+
     def select_best_detections(self, improved_results, fallback_results):
         improved_registers, improved_subjects, improved_overlay = improved_results
         fallback_registers, fallback_subjects, fallback_overlay = fallback_results
@@ -570,7 +556,7 @@ class AnswerSheetExtractor:
             best_overlay = fallback_overlay
         
         return best_register, best_subject, best_overlay
-    
+
     def extract_text(self, image_path, model, img_transform, char_map):
         try:
             if not os.path.exists(image_path):
@@ -595,15 +581,15 @@ class AnswerSheetExtractor:
         except Exception as e:
             st.error(f"Text extraction failed: {e}")
             return "ERROR"
-    
+
     def extract_register_number(self, image_path):
-        return self.extract_text(image_path, self.register_crnn_model, 
-                                self.register_transform, self.register_char_map)
-    
+        return self.extract_text(image_path, self.register_crnn_model,
+                                 self.register_transform, self.register_char_map)
+
     def extract_subject_code(self, image_path):
-        return self.extract_text(image_path, self.subject_crnn_model, 
-                                self.subject_transform, self.subject_char_map)
-    
+        return self.extract_text(image_path, self.subject_crnn_model,
+                                 self.subject_transform, self.subject_char_map)
+
     def process_answer_sheet(self, image_path):
         start_time = time.time()
         
@@ -642,6 +628,7 @@ class AnswerSheetExtractor:
         processing_time = time.time() - start_time
         
         if results or best_overlay:
+            script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else "."
             history_item = {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "original_image_path": image_path,
@@ -661,7 +648,7 @@ class AnswerSheetExtractor:
 @st.cache_resource
 def load_extractor():
     try:
-        script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
+        script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else "."
         
         model_files = {
             'yolo_improved': 'improved_weights.pt',
@@ -724,14 +711,14 @@ class VideoProcessor:
             self.frame_count = 0
         
         cv2.putText(img, f"FPS: {self.fps:.1f}", (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         h, w = img.shape[:2]
         center_x, center_y = w//2, h//2
         cv2.line(img, (center_x - 15, center_y), (center_x + 15, center_y), (0, 0, 255), 2)
         cv2.line(img, (center_x, center_y - 15), (center_x, center_y + 15), (0, 0, 255), 2)
         cv2.putText(img, "Align Sheet & Capture", (center_x - 100, h - 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
@@ -749,7 +736,7 @@ def display_header():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def save_results_to_file(results, filename_prefix="results"):
-    script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
+    script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else "."
     results_dir = os.path.join(script_dir, "results")
     os.makedirs(results_dir, exist_ok=True)
     
@@ -866,7 +853,7 @@ def main():
             )
             
             if uploaded_file:
-                script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
+                script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else "."
                 uploads_dir = os.path.join(script_dir, "uploads")
                 os.makedirs(uploads_dir, exist_ok=True)
                 
@@ -907,7 +894,7 @@ def main():
                 capture_disabled = not (ctx.state.playing and ctx.video_processor)
                 if st.button("📸 Capture Image", disabled=capture_disabled, use_container_width=True, key="btn_capture"):
                     if ctx.video_processor and hasattr(ctx.video_processor, 'frame') and ctx.video_processor.frame is not None:
-                        script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
+                        script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else "."
                         captures_dir = os.path.join(script_dir, "captures")
                         os.makedirs(captures_dir, exist_ok=True)
                         temp_path = os.path.join(captures_dir, f"capture_{uuid.uuid4().hex}.jpg")
@@ -946,8 +933,8 @@ def main():
                 st.image(st.session_state.image_path, caption="Current Image")
         
         # Extract button - only show if image is ready but not yet extracted
-        if (st.session_state.image_path and 
-            st.session_state.image_captured and 
+        if (st.session_state.image_path and
+            st.session_state.image_captured and
             not st.session_state.extraction_complete):
             
             st.markdown("---")
@@ -993,7 +980,7 @@ def main():
             if results:
                 st.markdown('<div class="extracted-output">', unsafe_allow_html=True)
                 for label, value in results:
-                    st.markdown(f"{label}:** {value}")
+                    st.markdown(f"**{label}:** {value}")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
                 # Download results
@@ -1086,7 +1073,7 @@ def main():
                     results = item.get("results", [])
                     if results:
                         for label, value in results:
-                            st.markdown(f"{label}:** {value}")
+                            st.markdown(f"**{label}:** {value}")
                     else:
                         st.info("No results extracted")
                     
@@ -1160,7 +1147,7 @@ def main():
             st.markdown('<div style="font-size: 80px; text-align: center;">🧠</div>', unsafe_allow_html=True)
         with col2:
             st.markdown("""
-            This application uses computer vision and deep learning to automatically extract 
+            This application uses computer vision and deep learning to automatically extract
             information from answer sheets and submit them to Moodle LMS.
             """)
         
@@ -1209,5 +1196,5 @@ def main():
     st.markdown("© 2025 Smart Answer Sheet Scanner | Built with Streamlit & ❤", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
