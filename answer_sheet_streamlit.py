@@ -15,6 +15,7 @@ from streamlit_option_menu import option_menu
 from streamlit_image_comparison import image_comparison
 from datetime import datetime
 import json
+import requests  # <-- NEW IMPORT
 
 # Set page configuration
 st.set_page_config(
@@ -669,6 +670,106 @@ def save_results_to_file(results, filename_prefix="results"):
         st_error(f"Failed to save results to {filepath}: {e}")
         return None
 
+# --- VVVV - NEW MOODLE SUBMISSION FUNCTION - VVVV ---
+def submit_to_moodle(image_path, register_number, subject_code):
+    # --- CONFIGURE THESE 4 VALUES ---
+    MOODLE_URL = "http://localhost/webservice/rest/server.php"
+    MOODLE_TOKEN = "c53569d516cd601cb78849cd64f59eaa"  # Your token
+    ASSIGNMENT_ID = 2  # Your Assignment ID
+    USER_ID = 2  # Your User ID
+    # --- END OF CONFIGURATION ---
+    
+    
+    # -----------------------------------------------------
+    # STEP 1: Upload the file to Moodle's "draft" area
+    # -----------------------------------------------------
+    st_info("Step 1/2: Uploading file to Moodle...")
+    
+    upload_params = {
+        'token': MOODLE_TOKEN,
+        'wsfunction': 'core_files_upload',
+        'moodlewsrestformat': 'json',
+        'component': 'user',       
+        'filearea': 'draft',       
+        'itemid': 0,               
+        'contextlevel': 'user',    
+        'contextinstanceid': USER_ID 
+    }
+    
+    # Get the file name
+    file_name = os.path.basename(image_path)
+    
+    try:
+        # Determine MIME type
+        mime_type = 'image/jpeg'
+        if file_name.lower().endswith('.png'):
+            mime_type = 'image/png'
+        
+        files_to_upload = {
+            'file': (file_name, open(image_path, 'rb'), mime_type) 
+        }
+    except Exception as e:
+        st_error(f"Error opening file {image_path}: {e}")
+        return False
+
+    try:
+        response_upload = requests.post(MOODLE_URL, params=upload_params, files=files_to_upload)
+        response_upload.raise_for_status() # Raise HTTPError for bad responses
+        upload_data = response_upload.json()
+        
+        if 'exception' in upload_data:
+            st_error(f"Moodle Upload Error: {upload_data['message']}")
+            return False
+            
+        # Get the itemid for the uploaded file
+        file_item_id = upload_data[0]['itemid']
+        st_success(f"File uploaded successfully. Got file item ID: {file_item_id}")
+        
+    except Exception as e:
+        st_error(f"Error during file upload request: {e}")
+        if 'response_upload' in locals():
+            st_error(f"Response text: {response_upload.text}")
+        return False
+
+    # -----------------------------------------------------
+    # STEP 2: Save the submission (links the file to the assignment)
+    # -----------------------------------------------------
+    st_info("Step 2/2: Submitting assignment...")
+    
+    submission_params = {
+        'token': MOODLE_TOKEN,
+        'wsfunction': 'mod_assign_save_submission',
+        'moodlewsrestformat': 'json',
+        'assignmentid': ASSIGNMENT_ID,
+        'plugindata[files_filemanager]': file_item_id, # This links the file
+        'plugindata[onlinetext_editor][text]': f'Submission from Streamlit. Register: {register_number}, Subject: {subject_code}',
+        'plugindata[onlinetext_editor][format]': 1 # 1 = HTML format
+    }
+
+    try:
+        response_submit = requests.post(MOODLE_URL, params=submission_params)
+        response_submit.raise_for_status()
+        submit_data = response_submit.json()
+
+        if submit_data is None or (isinstance(submit_data, list) and not submit_data):
+             # A successful save_submission often returns an empty list or null
+            st_success("🎉 Assignment submitted to Moodle successfully!")
+            return True
+        elif 'exception' in submit_data:
+            st_error(f"Moodle Submission Error: {submit_data['message']}")
+            return False
+        else:
+            st_warning(f"Submission complete with response: {submit_data}")
+            return True
+
+    except Exception as e:
+        st_error(f"Error during assignment submission request: {e}")
+        if 'response_submit' in locals():
+            st_error(f"Response text: {response_submit.text}")
+        return False
+# --- ^^^^ - END OF NEW MOODLE FUNCTION - ^^^^ ---
+
+
 # Main app
 def main():
     display_header()
@@ -873,6 +974,30 @@ def main():
                     st.markdown(f"<p style='text-align: right; font-size: 0.9em;'>Processing time: {processing_time:.2f} seconds</p>", unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
+                    # --- VVVV - NEW MOODLE SUBMISSION BUTTON - VVVV ---
+                    if results: # Only show button if there are results
+                        st.markdown("---")
+                        st.subheader("🎓 Moodle Submission")
+                        st.markdown(f"**Submit to Assignment ID:** `{2}`") # Hardcoding '2' for our test
+                        
+                        if st.button("🚀 Submit to Moodle", key="submit_moodle_btn", type="primary"):
+                            # Get the extracted data
+                            register_num = next((item[1] for item in results if item[0] == "Register Number"), "N/A")
+                            subject_code = next((item[1] for item in results if item[0] == "Subject Code"), "N/A")
+                            
+                            # Get the original image path
+                            original_image_path = st.session_state.image_path
+                            
+                            if original_image_path and os.path.exists(original_image_path):
+                                with st.spinner("Submitting to Moodle..."):
+                                    success = submit_to_moodle(original_image_path, register_num, subject_code)
+                                    if not success:
+                                        st_error("Submission failed. Check Moodle logs or terminal for details.")
+                            else:
+                                st_error("Could not find original image path to submit.")
+                    # --- ^^^^ - END OF NEW MOODLE BUTTON - ^^^^ ---
+
+
                     st.subheader("🔍 Visual Results")
                     img_cols = st.columns(2)
                     with img_cols[0]:
@@ -933,7 +1058,7 @@ def main():
                         <p><strong>Results:</strong> {results_summary}</p>
                         <p><strong>Processing Time:</strong> {processing_time:.2f} sec</p>
                     </div>
-                    """, untrue_allow_html=True)
+                    """, unsafe_allow_html=True) # Fixed 'untrue_allow_html' to 'unsafe_allow_html'
                 with hist_cols[1]:
                     if st.button("View Details", key=f"view_history_{i}"):
                         st.session_state.selected_history_item_index = i
@@ -1035,6 +1160,7 @@ def main():
             <li>If using the camera, position the sheet clearly and click <b>Capture Image</b>.</li>
             <li>Once an image is loaded or captured, click <b>Extract Information</b>.</li>
             <li>View the extracted text, detection overlays, and cropped regions.</li>
+            <li><b>New:</b> Click <b>Submit to Moodle</b> to send your scan to the LMS.</li>
             <li>Check the <b>History</b> tab to review past scans.</li>
         </ol>
         """, unsafe_allow_html=True)
