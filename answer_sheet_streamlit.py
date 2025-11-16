@@ -255,66 +255,71 @@ class CRNN(nn.Module):
 # ============================================
 class MoodleAPI:
     """Handle all Moodle API interactions"""
-
+    
     def __init__(self, config: Dict):
         self.url = config["url"]
+        self.upload_url = config["url"].replace(
+            "/webservice/rest/server.php",
+            "/webservice/upload.php"
+        )
         self.token = config["token"]
         self.assignment_id = config["assignment_id"]
         self.user_id = config["user_id"]
         self.timeout = config.get("timeout", 30)
-
+    
     def upload_file(self, file_path: str) -> Tuple[bool, Optional[int], str]:
-    """Upload file to Moodle draft area"""
-    if not os.path.exists(file_path):
-        return False, None, f"File not found: {file_path}"
-    
-    filename = os.path.basename(file_path)
-    
-    # Determine MIME type
-    if filename.lower().endswith('.pdf'):
-        mimetype = 'application/pdf'
-    elif filename.lower().endswith(('.jpg', '.jpeg')):
-        mimetype = 'image/jpeg'
-    elif filename.lower().endswith('.png'):
-        mimetype = 'image/png'
-    else:
-        mimetype = 'application/octet-stream'
-    
-    try:
-        with open(file_path, 'rb') as f:
-            files = {'file_1': (filename, f, mimetype)}
-            data = {'token': self.token}
-            
-            # ✅ CHANGE THIS LINE:
-            upload_url = self.url.replace(
-                "/webservice/rest/server.php",
-                "/webservice/upload.php"
-            )
-            
-            response = requests.post(
-                upload_url,  # ✅ Use upload_url instead of self.url
-                files=files,
-                data=data,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            
-            if isinstance(result, list) and len(result) > 0:
-                itemid = result[0].get('itemid')
-                if itemid:
-                    return True, itemid, "File uploaded successfully"
-                else:
-                    return False, None, "No item ID returned"
-            else:
-                error_msg = result.get('message', 'Unexpected response')
-                return False, None, error_msg
+        """Upload file to Moodle draft area"""
+        if not os.path.exists(file_path):
+            return False, None, f"File not found: {file_path}"
+        
+        filename = os.path.basename(file_path)
+        
+        # Determine MIME type
+        if filename.lower().endswith('.pdf'):
+            mimetype = 'application/pdf'
+        elif filename.lower().endswith(('.jpg', '.jpeg')):
+            mimetype = 'image/jpeg'
+        elif filename.lower().endswith('.png'):
+            mimetype = 'image/png'
+        else:
+            mimetype = 'application/octet-stream'
+        
+        try:
+            with open(file_path, 'rb') as f:
+                files = {'file_1': (filename, f, mimetype)}
+                data = {'token': self.token}
                 
-    except Exception as e:
-        return False, None, f"Upload exception: {str(e)}"
-
-
+                # Use upload endpoint, not REST API endpoint
+                response = requests.post(
+                    self.upload_url,  # ✅ Correct endpoint
+                    files=files,
+                    data=data,
+                    timeout=self.timeout
+                )
+                
+                # Check if response is HTML (error page)
+                content_type = response.headers.get('Content-Type', '')
+                if 'text/html' in content_type:
+                    return False, None, f"Server returned HTML instead of JSON. Check if upload endpoint is accessible: {self.upload_url}"
+                
+                response.raise_for_status()
+                result = response.json()
+                
+                if isinstance(result, list) and len(result) > 0:
+                    itemid = result[0].get('itemid')
+                    if itemid:
+                        return True, itemid, "File uploaded successfully"
+                    else:
+                        return False, None, "No item ID returned"
+                else:
+                    error_msg = result.get('message', 'Unexpected response')
+                    return False, None, error_msg
+                    
+        except requests.JSONDecodeError:
+            return False, None, "Server did not return valid JSON. Check Moodle URL and web service configuration."
+        except Exception as e:
+            return False, None, f"Upload exception: {str(e)}"
+    
     def submit_assignment(self, itemid: int, register_num: str, subject_code: str) -> Tuple[bool, str]:
         """Submit assignment with uploaded file"""
         submission_data = {
@@ -332,35 +337,35 @@ class MoodleAPI:
             """,
             "plugindata[onlinetext_editor][format]": "1"
         }
-
+        
         try:
             response = requests.post(
-                self.url,
+                self.url,  # REST endpoint is correct here
                 data=submission_data,
                 timeout=self.timeout
             )
             response.raise_for_status()
-
+            
             result = response.json()
-
+            
             # Check for errors
             if isinstance(result, dict) and "exception" in result:
                 return False, f"Moodle error: {result.get('message', 'Unknown error')}"
-
+            
             # Empty array = success
             if result is None or (isinstance(result, list) and len(result) == 0):
                 return True, "Assignment submitted successfully!"
-
+            
             # Check warnings
             if isinstance(result, dict) and "warnings" in result:
                 if result["warnings"]:
                     return True, f"Submitted with warnings: {result['warnings']}"
-
+            
             return True, "Assignment submitted successfully!"
-
+            
         except Exception as e:
             return False, f"Submission error: {str(e)}"
-
+    
     def get_submission_status(self) -> Tuple[bool, Dict]:
         """Get current submission status"""
         try:
@@ -370,19 +375,20 @@ class MoodleAPI:
                 "moodlewsrestformat": "json",
                 "assignmentids[0]": str(self.assignment_id)
             }
-
+            
             response = requests.post(self.url, data=params, timeout=self.timeout)
             response.raise_for_status()
-
+            
             result = response.json()
-
+            
             if isinstance(result, dict) and "exception" in result:
                 return False, {"error": result.get("message", "Unknown error")}
-
+            
             return True, result
-
+            
         except Exception as e:
             return False, {"error": str(e)}
+
 
 def submit_to_moodle_workflow(image_path: str, register_number: str, subject_code: str) -> Tuple[bool, str]:
     """Complete workflow for submitting to Moodle"""
