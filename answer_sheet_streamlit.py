@@ -17,6 +17,7 @@ from datetime import datetime
 import json
 import requests
 from typing import Optional, Tuple, List, Dict
+import traceback
 
 # ============================================
 # MOODLE CONFIGURATION
@@ -25,9 +26,9 @@ from typing import Optional, Tuple, List, Dict
 MOODLE_CONFIG = {
     "url": "https://05f244c11755.ngrok-free.app/webservice/rest/server.php",
     "token": "c53569d516cd601cb78849cd64f59eaa",
-    "assignment_id": 2,
+    "assignment_id": 1, 
     "user_id": 2,
-    "timeout": 30  # Request timeout in seconds
+    "timeout": 30
 }
 
 # ============================================
@@ -269,118 +270,109 @@ class MoodleAPI:
     """Handle all Moodle API interactions"""
     
     def __init__(self, config: Dict):
-        self.url = config['url']
-        self.token = config['token']
-        self.assignment_id = config['assignment_id']
-        self.user_id = config['user_id']
-        self.timeout = config.get('timeout', 30)
+        self.url = config["url"]
+        self.upload_url = config["url"].replace(
+            "/webservice/rest/server.php",
+            "/webservice/upload.php"
+        )
+        self.token = config["token"]
+        self.assignment_id = config["assignment_id"]
+        self.user_id = config["user_id"]
+        self.timeout = config.get("timeout", 30)
     
-    def _make_request(self, params: Dict, files: Optional[Dict] = None) -> Tuple[bool, Dict]:
-        """
-        Make a request to Moodle API with proper error handling
-        Returns: (success: bool, response_data: dict or error_message: str)
-        """
+    def make_request(self, params: Dict, files: Optional[Dict] = None) -> Tuple[bool, Dict]:
+        """Make a request to Moodle API with proper error handling"""
         try:
             if files:
-                response = requests.post(
-                    self.url, 
-                    params=params, 
-                    files=files, 
-                    timeout=self.timeout
-                )
+                response = requests.post(self.url, params=params, files=files, timeout=self.timeout)
             else:
-                response = requests.post(
-                    self.url, 
-                    params=params, 
-                    timeout=self.timeout
-                )
+                response = requests.post(self.url, params=params, timeout=self.timeout)
             
             response.raise_for_status()
             data = response.json()
             
             # Check for Moodle-specific errors
-            if isinstance(data, dict) and 'exception' in data:
-                error_msg = data.get('message', 'Unknown Moodle error')
-                return False, {'error': error_msg, 'details': data}
+            if isinstance(data, dict) and "exception" in data:
+                error_msg = data.get("message", "Unknown Moodle error")
+                return False, {"error": error_msg, "details": data}
             
             return True, data
             
         except requests.exceptions.ConnectionError as e:
-            return False, {'error': 'Connection Error', 'details': f'Cannot connect to Moodle server. Is the URL correct? Error: {str(e)}'}
+            return False, {"error": "Connection Error", "details": f"Cannot connect to Moodle. Error: {str(e)}"}
         except requests.exceptions.Timeout:
-            return False, {'error': 'Timeout Error', 'details': f'Request timed out after {self.timeout} seconds'}
+            return False, {"error": "Timeout Error", "details": f"Request timed out after {self.timeout} seconds"}
         except requests.exceptions.HTTPError as e:
-            return False, {'error': 'HTTP Error', 'details': f'HTTP {response.status_code}: {str(e)}'}
+            return False, {"error": "HTTP Error", "details": f"HTTP {response.status_code}: {str(e)}"}
         except json.JSONDecodeError:
-            return False, {'error': 'Invalid Response', 'details': 'Server returned invalid JSON'}
+            return False, {"error": "Invalid Response", "details": "Server returned invalid JSON"}
         except Exception as e:
-            return False, {'error': 'Unexpected Error', 'details': str(e)}
+            return False, {"error": "Unexpected Error", "details": str(e)}
     
     def upload_file(self, file_path: str) -> Tuple[bool, Optional[int], str]:
-        """
-        Upload file to Moodle draft area
-        Returns: (success, item_id, message)
-        """
+        """Upload file to Moodle draft area using /webservice/upload.php endpoint"""
         if not os.path.exists(file_path):
             return False, None, f"File not found: {file_path}"
         
-        file_name = os.path.basename(file_path)
+        filename = os.path.basename(file_path)
         
         # Determine MIME type
-        mime_type = 'application/pdf'
-        if file_name.lower().endswith(('.jpg', '.jpeg')):
-            mime_type = 'image/jpeg'
-        elif file_name.lower().endswith('.png'):
-            mime_type = 'image/png'
-        
-        upload_params = {
-            'wstoken': self.token,
-            'wsfunction': 'core_files_upload',
-            'moodlewsrestformat': 'json',
-            'component': 'user',
-            'filearea': 'draft',
-            'itemid': 0,
-            'contextlevel': 'user',
-            'contextinstanceid': self.user_id,
-            'filepath': '/'
-        }
+        if filename.lower().endswith(('.pdf',)):
+            mimetype = 'application/pdf'
+        elif filename.lower().endswith(('.jpg', '.jpeg')):
+            mimetype = 'image/jpeg'
+        elif filename.lower().endswith('.png'):
+            mimetype = 'image/png'
+        else:
+            mimetype = 'application/octet-stream'
         
         try:
             with open(file_path, 'rb') as f:
-                files = {'file': (file_name, f, mime_type)}
-                success, data = self._make_request(upload_params, files=files)
-            
-            if not success:
-                return False, None, f"Upload failed: {data.get('error', 'Unknown error')}"
-            
-            if isinstance(data, list) and len(data) > 0:
-                item_id = data[0].get('itemid')
-                if item_id:
-                    return True, item_id, "File uploaded successfully"
-                else:
-                    return False, None, "No item ID returned from upload"
-            else:
-                return False, None, f"Unexpected upload response: {data}"
+                files = {'file_1': (filename, f, mimetype)}
+                data = {'token': self.token}  # Note: 'token', not 'wstoken'
                 
+                response = requests.post(
+                    self.upload_url,
+                    files=files,
+                    data=data,
+                    timeout=self.timeout
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                
+                if isinstance(result, list) and len(result) > 0:
+                    itemid = result[0].get('itemid')
+                    if itemid:
+                        return True, itemid, "File uploaded successfully"
+                    else:
+                        return False, None, "No item ID returned from upload"
+                else:
+                    error_msg = result.get('message', 'Unexpected upload response format')
+                    return False, None, error_msg
+                    
         except Exception as e:
             return False, None, f"File upload exception: {str(e)}"
     
-    def submit_assignment(self, item_id: int, register_num: str, subject_code: str) -> Tuple[bool, str]:
-        """
-        Submit assignment with uploaded file
-        Returns: (success, message)
-        """
+    def submit_assignment(self, itemid: int, register_num: str, subject_code: str) -> Tuple[bool, str]:
+        """Submit assignment with uploaded file"""
         submission_params = {
-            'wstoken': self.token,
-            'wsfunction': 'mod_assign_save_submission',
-            'moodlewsrestformat': 'json',
-            'assignmentid': self.assignment_id,
-            'plugindata[files_filemanager]': item_id,
-            'plugindata[onlinetext_editor][text]': f'<p>Answer Sheet Submission</p><p>Register Number: {register_num}</p><p>Subject Code: {subject_code}</p><p>Submitted via Smart Scanner App</p>',
-            'plugindata[onlinetext_editor][format]': 1
+            "wstoken": self.token,
+            "wsfunction": "mod_assign_save_submission",
+            "moodlewsrestformat": "json",
+            "assignmentid": self.assignment_id,
+            "plugindata[files_filemanager]": itemid,
+            "plugindata[onlinetext_editor][text]": f"""
+            <h3>📋 Answer Sheet Submission</h3>
+            <p><strong>Register Number:</strong> {register_num}</p>
+            <p><strong>Subject Code:</strong> {subject_code}</p>
+            <p><strong>Submitted:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}</p>
+            <p style="color: #999;">✨ Submitted via Smart Scanner App</p>
+            """,
+            "plugindata[onlinetext_editor][format]": "1"
         }
         
-        success, data = self._make_request(submission_params)
+        success, data = self.make_request(submission_params)
         
         if not success:
             return False, f"Submission failed: {data.get('error', 'Unknown error')}"
@@ -390,26 +382,22 @@ class MoodleAPI:
             return True, "Assignment submitted successfully!"
         
         # Check for warnings
-        if isinstance(data, dict) and 'warnings' in data:
-            warnings = data['warnings']
+        if isinstance(data, dict) and "warnings" in data:
+            warnings = data["warnings"]
             if warnings:
                 return True, f"Submitted with warnings: {warnings}"
         
         return True, "Assignment submitted successfully!"
     
     def get_submission_status(self) -> Tuple[bool, Dict]:
-        """
-        Get current submission status for the assignment
-        Returns: (success, submission_data)
-        """
+        """Get current submission status"""
         params = {
-            'wstoken': self.token,
-            'wsfunction': 'mod_assign_get_submissions',
-            'moodlewsrestformat': 'json',
-            'assignmentids[0]': self.assignment_id
+            "wstoken": self.token,
+            "wsfunction": "mod_assign_get_submissions",
+            "moodlewsrestformat": "json",
+            "assignmentids[0]": self.assignment_id
         }
-        
-        return self._make_request(params)
+        return self.make_request(params)
 
 def submit_to_moodle_workflow(image_path: str, register_number: str, subject_code: str) -> Tuple[bool, str]:
     """
