@@ -881,7 +881,7 @@ def main():
                     st.session_state.image_captured = True
                     st.session_state.results = None
                     st.session_state.extraction_complete = False
-                    st.image(temp_path, caption="Uploaded Image", width=None)
+                    st.image(temp_path, caption="Uploaded Image")
                 except Exception as e:
                     st.error(f"Error saving file: {e}")
         
@@ -931,7 +931,7 @@ def main():
             else:
                 st.markdown("#### 📷 Captured Image")
                 if st.session_state.image_path and os.path.exists(st.session_state.image_path):
-                    st.image(st.session_state.image_path, caption="Captured Image", width=None)
+                    st.image(st.session_state.image_path, caption="Captured Image")
                     if st.button("🔄 Recapture", use_container_width=True, key="btn_recapture"):
                         st.session_state.image_captured = False
                         st.session_state.image_path = None
@@ -944,7 +944,7 @@ def main():
         if st.session_state.extraction_complete and st.session_state.image_path:
             st.markdown("#### 📷 Scanned Image")
             if os.path.exists(st.session_state.image_path):
-                st.image(st.session_state.image_path, caption="Current Image", width=None)
+                st.image(st.session_state.image_path, caption="Current Image")
         
         # Extract button - only show if image is ready but not yet extracted
         if (st.session_state.image_path and 
@@ -1063,11 +1063,11 @@ def main():
             with col2:
                 st.markdown("**Cropped Regions**")
                 if register_cropped and os.path.exists(register_cropped):
-                    st.image(register_cropped, caption="Register Number", width=None)
+                    st.image(register_cropped, caption="Register Number")
                     get_image_download_button(register_cropped, "register.jpg", "📥 Download")
                 
                 if subject_cropped and os.path.exists(subject_cropped):
-                    st.image(subject_cropped, caption="Subject Code", width=None)
+                    st.image(subject_cropped, caption="Subject Code")
                     get_image_download_button(subject_cropped, "subject.jpg", "📥 Download")
                 
                 if not register_cropped and not subject_cropped:
@@ -1107,9 +1107,9 @@ def main():
                         subject_path = item.get("subject_cropped_path")
                         
                         if register_path and os.path.exists(register_path):
-                            st.image(register_path, caption="Register Number", width=None)
+                            st.image(register_path, caption="Register Number")
                         if subject_path and os.path.exists(subject_path):
-                            st.image(subject_path, caption="Subject Code", width=None)
+                            st.image(subject_path, caption="Subject Code")
     
     # ============================================
     # SETTINGS TAB
