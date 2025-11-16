@@ -352,36 +352,34 @@ class MoodleAPI:
     
     def submit_assignment(self, itemid: int, register_num: str, subject_code: str) -> Tuple[bool, str]:
         """Submit assignment with uploaded file"""
+        # Try simpler submission first - just the file without text
         submission_params = {
             "wstoken": self.token,
             "wsfunction": "mod_assign_save_submission",
             "moodlewsrestformat": "json",
             "assignmentid": self.assignment_id,
-            "plugindata[files_filemanager]": itemid,
-            "plugindata[onlinetext_editor][text]": f"""
-            <h3>📋 Answer Sheet Submission</h3>
-            <p><strong>Register Number:</strong> {register_num}</p>
-            <p><strong>Subject Code:</strong> {subject_code}</p>
-            <p><strong>Submitted:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}</p>
-            <p style="color: #999;">✨ Submitted via Smart Scanner App</p>
-            """,
-            "plugindata[onlinetext_editor][format]": "1"
+            "plugindata[files_filemanager]": itemid
         }
         
         success, data = self.make_request(submission_params)
         
         if not success:
+            error_detail = data.get('details', {})
+            if isinstance(error_detail, dict):
+                error_msg = error_detail.get('message', data.get('error', 'Unknown error'))
+                debug_info = error_detail.get('debuginfo', '')
+                return False, f"Submission failed: {error_msg}. Debug: {debug_info}"
             return False, f"Submission failed: {data.get('error', 'Unknown error')}"
         
         if data is None or (isinstance(data, list) and len(data) == 0):
-            return True, "Assignment submitted successfully!"
+            return True, f"Assignment submitted successfully! (Register: {register_num}, Subject: {subject_code})"
         
         if isinstance(data, dict) and "warnings" in data:
             warnings = data["warnings"]
             if warnings:
                 return True, f"Submitted with warnings: {warnings}"
         
-        return True, "Assignment submitted successfully!"
+        return True, f"Assignment submitted successfully! (Register: {register_num}, Subject: {subject_code})"
     
     def get_submission_status(self) -> Tuple[bool, Dict]:
         """Get current submission status"""
