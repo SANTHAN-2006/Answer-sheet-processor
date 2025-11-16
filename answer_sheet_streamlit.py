@@ -15,7 +15,16 @@ from streamlit_option_menu import option_menu
 from streamlit_image_comparison import image_comparison
 from datetime import datetime
 import json
-import requests  # <-- FIXED: Removed invalid character
+import requests  # <-- Make sure this is imported
+
+# --- VVVV - MOODLE CONFIGURATION - VVVV ---
+# Moved here to be global constants
+MOODLE_URL = "https://8643866ef5e3.ngrok-free.app/webservice/rest/server.php"
+MOODLE_TOKEN = "c53569d516cd601cb78849cd64f59eaa" 
+ASSIGNMENT_ID = 2  
+USER_ID = 2 
+# --- ^^^^ - END OF MOODLE CONFIGURATION - ^^^^ ---
+
 
 # Set page configuration
 st.set_page_config(
@@ -675,23 +684,6 @@ def save_results_to_file(results, filename_prefix="results"):
 # --- VVVV - MOODLE SUBMISSION FUNCTION - VVVV ---
 def submit_to_moodle(image_path, register_number, subject_code):
     
-    # --- VVVV - IMPORTANT: CONFIGURE THESE 4 VALUES - VVVV ---
-    
-    # 1. Your Moodle Site URL (REPLACE THIS with your public ngrok URL)
-    MOODLE_URL = "https://8643866ef5e3.ngrok-free.app/webservice/rest/server.php"
-    
-    # 2. Your Token (from your Moodle setup)
-    MOODLE_TOKEN = "c53569d516cd601cb78849cd64f59eaa" 
-    
-    # 3. Your Assignment ID (we found this earlier)
-    ASSIGNMENT_ID = 2  
-    
-    # 4. Your User ID (we found this earlier)
-    USER_ID = 2 
-    
-    # --- ^^^^ - END OF CONFIGURATION - ^^^^ ---
-
-    
     # Check if the placeholder URL is still being used
     if "YOUR-NGROK-HTTPS-URL" in MOODLE_URL:
         st_error("Moodle URL is not configured. Please edit the python script and replace the `MOODLE_URL` placeholder with your public ngrok URL.")
@@ -878,8 +870,8 @@ def main():
                         st.session_state.selected_history_item_index = None
                         st.session_state.results = None # <-- Reset results
                         st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                        # FIXED: Replaced use_container_width
-                        st.image(st.session_state.image_path, caption="Uploaded Image", width=None, use_column_width='auto') 
+                        # FIXED: Replaced use_column_width
+                        st.image(st.session_state.image_path, caption="Uploaded Image", use_container_width=True) 
                         st.markdown('</div>', unsafe_allow_html=True)
                     except Exception as e:
                         st_error(f"Error saving uploaded file: {e}")
@@ -948,8 +940,8 @@ def main():
                 elif st.session_state.image_path and os.path.exists(st.session_state.image_path):
                     st.markdown("<h4>Captured Image</h4>", unsafe_allow_html=True)
                     st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                    # FIXED: Replaced use_container_width
-                    st.image(st.session_state.image_path, caption="Captured Image", width=None, use_column_width='auto')
+                    # FIXED: Replaced use_column_width
+                    st.image(st.session_state.image_path, caption="Captured Image", use_container_width=True)
                     st.markdown('</div>', unsafe_allow_html=True)
                     if st.button("🔄 Recapture Image", key="recapture_btn"):
                         st.session_state.image_captured = False
@@ -1039,7 +1031,7 @@ def main():
             if results: 
                 st.markdown("---")
                 st.subheader("🎓 Moodle Submission")
-                st.markdown(f"**Submit to Assignment ID:** `{ASSIGNMENT_ID}`") 
+                st.markdown(f"**Submit to Assignment ID:** `{ASSIGNMENT_ID}`") # <-- FIXED: Now reads global var
                 
                 if st.button("🚀 Submit to Moodle", key="submit_moodle_btn", type="primary"):
                     register_num = next((item[1] for item in results if item[0] == "Register Number"), "N/A")
@@ -1074,14 +1066,14 @@ def main():
                 st.markdown("<h6>Cropped Regions</h6>", unsafe_allow_html=True)
                 if register_cropped and os.path.exists(register_cropped):
                     st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                    # FIXED: Replaced use_container_width
-                    st.image(register_cropped, caption="Register Number", width=None, use_column_width='auto')
+                    # FIXED: Replaced use_column_width
+                    st.image(register_cropped, caption="Register Number", use_container_width=True)
                     st.markdown('</div>', unsafe_allow_html=True)
                     get_image_download_button(register_cropped, "register_number_crop.jpg", "Download Register Crop")
                 if subject_cropped and os.path.exists(subject_cropped):
                     st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                    # FIXED: Replaced use_container_width
-                    st.image(subject_cropped, caption="Subject Code", width=None, use_column_width='auto')
+                    # FIXED: Replaced use_column_width
+                    st.image(subject_cropped, caption="Subject Code", use_container_width=True)
                     st.markdown('</div>', unsafe_allow_html=True)
                     get_image_download_button(subject_cropped, 'subject_code_crop.jpg', 'Download Subject Crop')
                 if not register_cropped and not subject_cropped:
@@ -1170,16 +1162,16 @@ def main():
                     st.markdown("<u>Cropped Regions:</u>", unsafe_allow_html=True)
                     if register_cropped_path and os.path.exists(register_cropped_path):
                         st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                        # FIXED: Replaced use_container_width
-                        st.image(register_cropped_path, caption="Register Number (Cropped)", width=None, use_column_width='auto')
+                        # FIXED: Replaced use_column_width
+                        st.image(register_cropped_path, caption="Register Number (Cropped)", use_container_width=True)
                         st.markdown('</div>', unsafe_allow_html=True)
                     else:
                         st.markdown("<p>No Register Number crop.</p>", unsafe_allow_html=True)
 
                     if subject_cropped_path and os.path.exists(subject_cropped_path):
                         st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                        # FIXED: Replaced use_container_width
-                        st.image(subject_cropped_path, caption="Subject Code (Cropped)", width=None, use_column_width='auto')
+                        # FIXED: Replaced use_column_width
+                        st.image(subject_cropped_path, caption="Subject Code (Cropped)", use_container_width=True)
                         st.markdown('</div>', unsafe_allow_html=True)
                     else:
                         st.markdown("<p>No Subject Code crop.</p>", unsafe_allow_html=True)
@@ -1228,7 +1220,7 @@ def main():
         st.markdown("<h6>Model Information:</h6>", unsafe_allow_html=True)
         st.markdown("""
         <ul>
-            <li>The models require specific weights files (<code>improved_weights.pt</code>, <code>weights.pt</code>, <code>best_crnn_model.pth</code>, <code>best_subject_code_model.pth</code>) to be present in the same directory as the script.</li>
+            <li>The models require specific weights files (<code>improved_weights.pt</code>, C<code>weights.pt</code>, <code>best_crnn_model.pth</code>, <code>best_subject_code_model.pth</code>) to be present in the same directory as the script.</li>
             <li>Accuracy is dependent on the quality of the input image (clarity, lighting, angle) and the training data used for the models.</li>
             <li>If model files are missing, dummy files are created for testing. Replace them with trained model weights for production use.</li>
         </ul>
