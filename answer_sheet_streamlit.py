@@ -17,12 +17,10 @@ from datetime import datetime
 import json
 import requests
 from typing import Optional, Tuple, List, Dict
-import traceback
 
 # ============================================
 # MOODLE CONFIGURATION
 # ============================================
-# IMPORTANT: Update these values for your Moodle instance
 MOODLE_CONFIG = {
     "url": "https://05f244c11755.ngrok-free.app/webservice/rest/server.php",
     "token": "c53569d516cd601cb78849cd64f59eaa",
@@ -291,7 +289,6 @@ class MoodleAPI:
             response.raise_for_status()
             data = response.json()
             
-            # Check for Moodle-specific errors
             if isinstance(data, dict) and "exception" in data:
                 error_msg = data.get("message", "Unknown Moodle error")
                 return False, {"error": error_msg, "details": data}
@@ -316,7 +313,6 @@ class MoodleAPI:
         
         filename = os.path.basename(file_path)
         
-        # Determine MIME type
         if filename.lower().endswith(('.pdf',)):
             mimetype = 'application/pdf'
         elif filename.lower().endswith(('.jpg', '.jpeg')):
@@ -329,7 +325,7 @@ class MoodleAPI:
         try:
             with open(file_path, 'rb') as f:
                 files = {'file_1': (filename, f, mimetype)}
-                data = {'token': self.token}  # Note: 'token', not 'wstoken'
+                data = {'token': self.token}
                 
                 response = requests.post(
                     self.upload_url,
@@ -377,11 +373,9 @@ class MoodleAPI:
         if not success:
             return False, f"Submission failed: {data.get('error', 'Unknown error')}"
         
-        # Empty list or null response usually means success
         if data is None or (isinstance(data, list) and len(data) == 0):
             return True, "Assignment submitted successfully!"
         
-        # Check for warnings
         if isinstance(data, dict) and "warnings" in data:
             warnings = data["warnings"]
             if warnings:
@@ -400,14 +394,10 @@ class MoodleAPI:
         return self.make_request(params)
 
 def submit_to_moodle_workflow(image_path: str, register_number: str, subject_code: str) -> Tuple[bool, str]:
-    """
-    Complete workflow for submitting to Moodle
-    Returns: (success, message)
-    """
+    """Complete workflow for submitting to Moodle"""
     try:
         moodle = MoodleAPI(MOODLE_CONFIG)
         
-        # Step 1: Upload file
         st.info("📤 Step 1/2: Uploading file to Moodle...")
         success, item_id, message = moodle.upload_file(image_path)
         
@@ -416,7 +406,6 @@ def submit_to_moodle_workflow(image_path: str, register_number: str, subject_cod
         
         st.success(f"File uploaded! Item ID: {item_id}")
         
-        # Step 2: Submit assignment
         st.info("📝 Step 2/2: Submitting assignment...")
         success, message = moodle.submit_assignment(item_id, register_number, subject_code)
         
@@ -435,11 +424,9 @@ class AnswerSheetExtractor:
     def __init__(self, yolo_improved_path, yolo_fallback_path, register_crnn_path, subject_crnn_path):
         self.script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else "."
         
-        # Create necessary directories
         for dir_name in ["cropped_register_numbers", "cropped_subject_codes", "results", "uploads", "captures"]:
             os.makedirs(os.path.join(self.script_dir, dir_name), exist_ok=True)
         
-        # Device selection
         try:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             if torch.cuda.is_available():
@@ -450,16 +437,13 @@ class AnswerSheetExtractor:
             st.warning(f"Device detection error: {e}. Using CPU.")
             self.device = torch.device('cpu')
         
-        # Load models
         self._load_yolo_models(yolo_improved_path, yolo_fallback_path)
         self._load_crnn_models(register_crnn_path, subject_crnn_path)
         
-        # Character maps
         self.register_char_map = {0: '', **{i: str(i-1) for i in range(1, 11)}}
         self.subject_char_map = {0: '', **{i: str(i-1) for i in range(1, 11)}, **{i: chr(i - 11 + ord('A')) for i in range(11, 37)}}
     
     def _load_yolo_models(self, improved_path, fallback_path):
-        """Load YOLO models with error handling"""
         try:
             if not os.path.exists(improved_path):
                 raise FileNotFoundError(f"Improved weights not found: {improved_path}")
@@ -474,8 +458,6 @@ class AnswerSheetExtractor:
             raise RuntimeError(f"Failed to load YOLO models: {e}")
     
     def _load_crnn_models(self, register_path, subject_path):
-        """Load CRNN models with error handling"""
-        # Register CRNN
         self.register_crnn_model = CRNN(num_classes=11)
         self.register_crnn_model.to(self.device)
         if not os.path.exists(register_path):
@@ -487,7 +469,6 @@ class AnswerSheetExtractor:
         except Exception as e:
             raise RuntimeError(f"Failed to load register CRNN: {e}")
         
-        # Subject CRNN
         self.subject_crnn_model = CRNN(num_classes=37)
         self.subject_crnn_model.to(self.device)
         if not os.path.exists(subject_path):
@@ -499,7 +480,6 @@ class AnswerSheetExtractor:
         except Exception as e:
             raise RuntimeError(f"Failed to load subject CRNN: {e}")
         
-        # Transforms
         self.register_transform = transforms.Compose([
             transforms.Grayscale(num_output_channels=1),
             transforms.Resize((32, 256)),
@@ -514,7 +494,6 @@ class AnswerSheetExtractor:
         ])
     
     def detect_regions(self, image_path, model, model_name):
-        """Detect regions using YOLO model"""
         image = cv2.imread(image_path)
         if image is None:
             st.error(f"Could not load image: {image_path}")
@@ -572,7 +551,6 @@ class AnswerSheetExtractor:
         return register_regions, subject_regions, overlay_path
     
     def select_best_detections(self, improved_results, fallback_results):
-        """Select best detections from both models"""
         improved_registers, improved_subjects, improved_overlay = improved_results
         fallback_registers, fallback_subjects, fallback_overlay = fallback_results
         
@@ -595,7 +573,6 @@ class AnswerSheetExtractor:
         return best_register, best_subject, best_overlay
     
     def extract_text(self, image_path, model, img_transform, char_map):
-        """Extract text using CRNN model"""
         try:
             if not os.path.exists(image_path):
                 return "FILE_MISSING"
@@ -629,14 +606,11 @@ class AnswerSheetExtractor:
                                 self.subject_transform, self.subject_char_map)
     
     def process_answer_sheet(self, image_path):
-        """Main processing pipeline"""
         start_time = time.time()
         
-        # Detect with improved model
         with st.spinner("🔍 Detecting regions with improved model..."):
             improved_results = self.detect_regions(image_path, self.yolo_improved_model, "improved")
         
-        # Fallback if needed
         improved_registers, improved_subjects, _ = improved_results
         if not (improved_registers and improved_subjects):
             with st.spinner("🔄 Using fallback model..."):
@@ -644,14 +618,12 @@ class AnswerSheetExtractor:
         else:
             fallback_results = ([], [], None)
         
-        # Select best
         best_register, best_subject, best_overlay = self.select_best_detections(improved_results, fallback_results)
         
         results = []
         best_register_path = best_register[0] if best_register else None
         best_subject_path = best_subject[0] if best_subject else None
         
-        # Extract text
         if best_register:
             with st.spinner("📝 Extracting Register Number..."):
                 register_number = self.extract_register_number(best_register_path)
@@ -670,7 +642,6 @@ class AnswerSheetExtractor:
         
         processing_time = time.time() - start_time
         
-        # Save to history
         if results or best_overlay:
             history_item = {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -700,7 +671,6 @@ def load_extractor():
             'subject_crnn': 'best_subject_code_model.pth'
         }
         
-        # Check for missing models
         missing_models = []
         for name, filename in model_files.items():
             path = os.path.join(script_dir, filename)
@@ -816,7 +786,6 @@ def get_image_download_button(image_path, filename, button_text):
 def main():
     display_header()
     
-    # Load models
     with st.spinner("🔄 Loading AI models..."):
         extractor = load_extractor()
         if extractor:
@@ -825,7 +794,6 @@ def main():
             st.error("❌ Failed to load models. Please check model files.")
             st.stop()
     
-    # Navigation
     selected_tab = option_menu(
         menu_title=None,
         options=["Scan", "History", "Settings", "About"],
@@ -846,38 +814,50 @@ def main():
     if selected_tab == "Scan":
         st.markdown("### 📸 Scan Answer Sheet")
         
-        # Input method selection
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("⬆️ Upload Image", use_container_width=True):
-                st.session_state.input_method = "Upload Image"
-                st.session_state.image_path = None
-                st.session_state.image_captured = False
-                st.session_state.results = None
-                st.session_state.extraction_complete = False
-                st.rerun()
-        with col2:
-            if st.button("📸 Use Camera", use_container_width=True):
-                st.session_state.input_method = "Use Camera"
-                st.session_state.image_path = None
-                st.session_state.image_captured = False
-                st.session_state.results = None
-                st.session_state.extraction_complete = False
-                st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
-                st.rerun()
-        with col3:
-            if st.button("🔄 Reset", use_container_width=True):
-                st.session_state.image_path = None
-                st.session_state.image_captured = False
-                st.session_state.results = None
-                st.session_state.extraction_complete = False
-                st.session_state.input_method = "Upload Image"
-                st.rerun()
+        # CRITICAL FIX: Only show input method buttons if extraction is NOT complete
+        if not st.session_state.extraction_complete:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("⬆️ Upload Image", use_container_width=True, key="btn_upload"):
+                    st.session_state.input_method = "Upload Image"
+                    st.session_state.image_path = None
+                    st.session_state.image_captured = False
+                    st.session_state.results = None
+                    st.session_state.extraction_complete = False
+                    st.rerun()
+            with col2:
+                if st.button("📸 Use Camera", use_container_width=True, key="btn_camera"):
+                    st.session_state.input_method = "Use Camera"
+                    st.session_state.image_path = None
+                    st.session_state.image_captured = False
+                    st.session_state.results = None
+                    st.session_state.extraction_complete = False
+                    st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
+                    st.rerun()
+            with col3:
+                if st.button("🔄 Reset", use_container_width=True, key="btn_reset"):
+                    st.session_state.image_path = None
+                    st.session_state.image_captured = False
+                    st.session_state.results = None
+                    st.session_state.extraction_complete = False
+                    st.session_state.input_method = "Upload Image"
+                    st.rerun()
+            
+            st.markdown("---")
         
-        st.markdown("---")
+        # Show "Start New Scan" button if extraction is complete
+        if st.session_state.extraction_complete:
+            if st.button("🆕 Start New Scan", use_container_width=True, type="secondary", key="btn_new_scan"):
+                st.session_state.image_path = None
+                st.session_state.image_captured = False
+                st.session_state.results = None
+                st.session_state.extraction_complete = False
+                st.session_state.input_method = "Upload Image"
+                st.rerun()
+            st.markdown("---")
         
         # Upload Image method
-        if st.session_state.input_method == "Upload Image":
+        if st.session_state.input_method == "Upload Image" and not st.session_state.extraction_complete:
             st.markdown("#### 📁 Upload Answer Sheet")
             uploaded_file = st.file_uploader(
                 "Choose an image file",
@@ -901,12 +881,12 @@ def main():
                     st.session_state.image_captured = True
                     st.session_state.results = None
                     st.session_state.extraction_complete = False
-                    st.image(temp_path, caption="Uploaded Image", use_container_width=True)
+                    st.image(temp_path, caption="Uploaded Image", width=None)
                 except Exception as e:
                     st.error(f"Error saving file: {e}")
         
         # Camera method
-        elif st.session_state.input_method == "Use Camera":
+        elif st.session_state.input_method == "Use Camera" and not st.session_state.extraction_complete:
             if not st.session_state.image_captured:
                 st.markdown("#### 📸 Camera Feed")
                 st.info("Position the answer sheet and click 'Capture Image'")
@@ -926,7 +906,7 @@ def main():
                 )
                 
                 capture_disabled = not (ctx.state.playing and ctx.video_processor)
-                if st.button("📸 Capture Image", disabled=capture_disabled, use_container_width=True):
+                if st.button("📸 Capture Image", disabled=capture_disabled, use_container_width=True, key="btn_capture"):
                     if ctx.video_processor and hasattr(ctx.video_processor, 'frame') and ctx.video_processor.frame is not None:
                         script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else "."
                         captures_dir = os.path.join(script_dir, "captures")
@@ -951,8 +931,8 @@ def main():
             else:
                 st.markdown("#### 📷 Captured Image")
                 if st.session_state.image_path and os.path.exists(st.session_state.image_path):
-                    st.image(st.session_state.image_path, caption="Captured Image", use_container_width=True)
-                    if st.button("🔄 Recapture", use_container_width=True):
+                    st.image(st.session_state.image_path, caption="Captured Image", width=None)
+                    if st.button("🔄 Recapture", use_container_width=True, key="btn_recapture"):
                         st.session_state.image_captured = False
                         st.session_state.image_path = None
                         st.session_state.results = None
@@ -960,13 +940,19 @@ def main():
                         st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
                         st.rerun()
         
+        # Show current image if extraction is complete
+        if st.session_state.extraction_complete and st.session_state.image_path:
+            st.markdown("#### 📷 Scanned Image")
+            if os.path.exists(st.session_state.image_path):
+                st.image(st.session_state.image_path, caption="Current Image", width=None)
+        
         # Extract button - only show if image is ready but not yet extracted
         if (st.session_state.image_path and 
             st.session_state.image_captured and 
             not st.session_state.extraction_complete):
             
             st.markdown("---")
-            if st.button("🔍 Extract Information", type="primary", use_container_width=True):
+            if st.button("🔍 Extract Information", type="primary", use_container_width=True, key="btn_extract"):
                 try:
                     progress_bar = st.progress(0, text="Starting extraction...")
                     
@@ -986,7 +972,7 @@ def main():
                         "processing_time": processing_time
                     }
                     st.session_state.extraction_complete = True
-                    st.rerun()
+                    # DO NOT call st.rerun() here - just let it continue
                     
                 except Exception as e:
                     st.error(f"Extraction error: {e}")
@@ -1036,7 +1022,7 @@ def main():
                 with col1:
                     st.info(f"**Assignment ID:** {MOODLE_CONFIG['assignment_id']} | **User ID:** {MOODLE_CONFIG['user_id']}")
                 with col2:
-                    if st.button("🚀 Submit to Moodle", type="primary", use_container_width=True):
+                    if st.button("🚀 Submit to Moodle", type="primary", use_container_width=True, key="btn_submit_moodle"):
                         register_num = next((item[1] for item in results if item[0] == "Register Number"), "N/A")
                         subject_code = next((item[1] for item in results if item[0] == "Subject Code"), "N/A")
                         
@@ -1050,6 +1036,7 @@ def main():
                                 
                                 if success:
                                     st.success(f"🎉 {message}")
+                                    st.balloons()
                                     st.session_state.moodle_submission_status = "success"
                                 else:
                                     st.error(f"❌ {message}")
@@ -1076,11 +1063,11 @@ def main():
             with col2:
                 st.markdown("**Cropped Regions**")
                 if register_cropped and os.path.exists(register_cropped):
-                    st.image(register_cropped, caption="Register Number", use_container_width=True)
+                    st.image(register_cropped, caption="Register Number", width=None)
                     get_image_download_button(register_cropped, "register.jpg", "📥 Download")
                 
                 if subject_cropped and os.path.exists(subject_cropped):
-                    st.image(subject_cropped, caption="Subject Code", use_container_width=True)
+                    st.image(subject_cropped, caption="Subject Code", width=None)
                     get_image_download_button(subject_cropped, "subject.jpg", "📥 Download")
                 
                 if not register_cropped and not subject_cropped:
@@ -1120,9 +1107,9 @@ def main():
                         subject_path = item.get("subject_cropped_path")
                         
                         if register_path and os.path.exists(register_path):
-                            st.image(register_path, caption="Register Number", use_container_width=True)
+                            st.image(register_path, caption="Register Number", width=None)
                         if subject_path and os.path.exists(subject_path):
-                            st.image(subject_path, caption="Subject Code", use_container_width=True)
+                            st.image(subject_path, caption="Subject Code", width=None)
     
     # ============================================
     # SETTINGS TAB
