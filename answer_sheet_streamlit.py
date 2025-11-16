@@ -23,7 +23,7 @@ import base64  # For potential base64 encoding if needed
 # MOODLE CONFIGURATION
 # ============================================
 MOODLE_CONFIG = {
-    "url": "https://34853bd92314.ngrok-free.app/webservice/rest/server.php",
+    "url": "https://4717d3b2a5be.ngrok-free.app/webservice/rest/server.php",
     "token": "c53569d516cd601cb78849cd64f59eaa",
     "assignment_id": 1,
     "user_id": 2,
