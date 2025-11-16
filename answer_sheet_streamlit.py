@@ -15,7 +15,7 @@ from streamlit_option_menu import option_menu
 from streamlit_image_comparison import image_comparison
 from datetime import datetime
 import json
-import requests  # <-- NEW IMPORT
+import requests  # <-- Make sure this is imported
 
 # Set page configuration
 st.set_page_config(
@@ -255,6 +255,8 @@ if 'webrtc_key' not in st.session_state:
     st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
 if 'input_method' not in st.session_state:
     st.session_state.input_method = "Upload Image"
+if 'results' not in st.session_state: # <-- NEW: To store extraction results
+    st.session_state.results = None
 
 # Define CRNN model
 class CRNN(nn.Module):
@@ -672,13 +674,28 @@ def save_results_to_file(results, filename_prefix="results"):
 
 # --- VVVV - NEW MOODLE SUBMISSION FUNCTION - VVVV ---
 def submit_to_moodle(image_path, register_number, subject_code):
-    # --- CONFIGURE THESE 4 VALUES ---
-    MOODLE_URL = "http://localhost/webservice/rest/server.php"
-    MOODLE_TOKEN = "c53569d516cd601cb78849cd64f59eaa"  # Your token
-    ASSIGNMENT_ID = 2  # Your Assignment ID
-    USER_ID = 2  # Your User ID
-    # --- END OF CONFIGURATION ---
     
+    # --- VVVV - IMPORTANT: CONFIGURE THESE 4 VALUES - VVVV ---
+    
+    # 1. Your Moodle Site URL (REPLACE THIS with your public ngrok URL)
+    MOODLE_URL = "https://8643866ef5e3.ngrok-free.app/webservice/rest/server.php"
+    
+    # 2. Your Token (from your Moodle setup)
+    MOODLE_TOKEN = "c53569d516cd601cb78849cd64f59eaa" 
+    
+    # 3. Your Assignment ID (we found this earlier)
+    ASSIGNMENT_ID = 2  
+    
+    # 4. Your User ID (we found this earlier)
+    USER_ID = 2 
+    
+    # --- ^^^^ - END OF CONFIGURATION - ^^^^ ---
+
+    
+    # Check if the placeholder URL is still being used
+    if "YOUR-NGROK-HTTPS-URL" in MOODLE_URL:
+        st_error("Moodle URL is not configured. Please edit the python script and replace the `MOODLE_URL` placeholder with your public ngrok URL.")
+        return False
     
     # -----------------------------------------------------
     # STEP 1: Upload the file to Moodle's "draft" area
@@ -725,6 +742,9 @@ def submit_to_moodle(image_path, register_number, subject_code):
         file_item_id = upload_data[0]['itemid']
         st_success(f"File uploaded successfully. Got file item ID: {file_item_id}")
         
+    except requests.exceptions.ConnectionError as e:
+        st_error(f"Network Error: Could not connect to Moodle at {MOODLE_URL}. Is ngrok running and is the URL correct?")
+        return False
     except Exception as e:
         st_error(f"Error during file upload request: {e}")
         if 'response_upload' in locals():
@@ -815,18 +835,21 @@ def main():
             st.session_state.image_path = None
             st.session_state.image_captured = False
             st.session_state.selected_history_item_index = None
+            st.session_state.results = None  # <-- NEW: Reset results
             st.rerun()
         if st.button("📸 Use Camera", key="use_camera_btn"):
             st.session_state.input_method = "Use Camera"
             st.session_state.image_path = None
             st.session_state.image_captured = False
             st.session_state.selected_history_item_index = None
+            st.session_state.results = None  # <-- NEW: Reset results
             st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
             st.rerun()
         if st.button("🔄 Reset Scan", key="reset_btn_scan"):
             st.session_state.image_path = None
             st.session_state.image_captured = False
             st.session_state.selected_history_item_index = None
+            st.session_state.results = None  # <-- NEW: Reset results
             st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
             st.session_state.input_method = "Upload Image"
             st_info("Scan reset. Upload an image or use the camera.")
@@ -853,6 +876,7 @@ def main():
                         st.session_state.image_path = temp_path
                         st.session_state.image_captured = True
                         st.session_state.selected_history_item_index = None
+                        st.session_state.results = None # <-- NEW: Reset results
                         st.markdown('<div class="image-container">', unsafe_allow_html=True)
                         st.image(st.session_state.image_path, caption="Uploaded Image", use_container_width=True)
                         st.markdown('</div>', unsafe_allow_html=True)
@@ -909,6 +933,7 @@ def main():
                                 st.session_state.image_path = temp_path
                                 st.session_state.image_captured = True
                                 st.session_state.selected_history_item_index = None
+                                st.session_state.results = None # <-- NEW: Reset results
                                 st_success("Image captured successfully!")
                                 st.rerun()
                             except Exception as e:
@@ -927,6 +952,7 @@ def main():
                     if st.button("🔄 Recapture Image", key="recapture_btn"):
                         st.session_state.image_captured = False
                         st.session_state.image_path = None
+                        st.session_state.results = None # <-- NEW: Reset results
                         st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
                         st.rerun()
                 else:
@@ -937,7 +963,15 @@ def main():
                         st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
-        if st.session_state.image_path and st.session_state.image_captured and st.session_state.selected_history_item_index is None:
+        
+        # --- VVVV - REVISED LOGIC TO FIX DISAPPEARING BUTTON - VVVV ---
+        
+        # Step 1: Show Extract Button if we have an image but NO results yet
+        if (st.session_state.image_path and 
+            st.session_state.image_captured and 
+            st.session_state.selected_history_item_index is None and
+            st.session_state.results is None): # <-- Only show if results aren't computed
+            
             st.markdown("---")
             if st.button("🔍 Extract Information", key="extract_btn", type="primary"):
                 status_placeholder = st.empty()
@@ -951,88 +985,107 @@ def main():
                     time.sleep(1)
                     progress_bar.empty()
                     status_placeholder.empty()
-
-                    st.markdown('<div class="result-card">', unsafe_allow_html=True)
-                    st.subheader("📋 Extracted Information")
-                    if results:
-                        st.markdown('<div class="extracted-output">', unsafe_allow_html=True)
-                        for label, value in results:
-                            st.markdown(f"**{label}:** `{value}`")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        results_file = save_results_to_file(results, f"results_{datetime.now().strftime('%Y%m%d%H%M%S')}")
-                        if results_file and os.path.exists(results_file):
-                            with open(results_file, "rb") as file:
-                                st.download_button(
-                                    label="📥 Download Results (.txt)",
-                                    data=file,
-                                    file_name="extracted_data.txt",
-                                    mime="text/plain",
-                                    key=f"download_results_{uuid.uuid4().hex}"
-                                )
-                    else:
-                        st_warning("Could not extract any information.")
-                    st.markdown(f"<p style='text-align: right; font-size: 0.9em;'>Processing time: {processing_time:.2f} seconds</p>", unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-                    # --- VVVV - NEW MOODLE SUBMISSION BUTTON - VVVV ---
-                    if results: # Only show button if there are results
-                        st.markdown("---")
-                        st.subheader("🎓 Moodle Submission")
-                        st.markdown(f"**Submit to Assignment ID:** `{2}`") # Hardcoding '2' for our test
-                        
-                        if st.button("🚀 Submit to Moodle", key="submit_moodle_btn", type="primary"):
-                            # Get the extracted data
-                            register_num = next((item[1] for item in results if item[0] == "Register Number"), "N/A")
-                            subject_code = next((item[1] for item in results if item[0] == "Subject Code"), "N/A")
-                            
-                            # Get the original image path
-                            original_image_path = st.session_state.image_path
-                            
-                            if original_image_path and os.path.exists(original_image_path):
-                                with st.spinner("Submitting to Moodle..."):
-                                    success = submit_to_moodle(original_image_path, register_num, subject_code)
-                                    if not success:
-                                        st_error("Submission failed. Check Moodle logs or terminal for details.")
-                            else:
-                                st_error("Could not find original image path to submit.")
-                    # --- ^^^^ - END OF NEW MOODLE BUTTON - ^^^^ ---
-
-
-                    st.subheader("🔍 Visual Results")
-                    img_cols = st.columns(2)
-                    with img_cols[0]:
-                        st.markdown("<h6>Original vs. Detections</h6>", unsafe_allow_html=True)
-                        if st.session_state.image_path and overlay_path and os.path.exists(st.session_state.image_path) and os.path.exists(overlay_path):
-                            st.markdown('<div class="image-comparison-container">', unsafe_allow_html=True)
-                            image_comparison(
-                                img1=st.session_state.image_path,
-                                img2=overlay_path,
-                                label1="Original",
-                                label2="Detections"
-                            )
-                            st.markdown('</div>', unsafe_allow_html=True)
-                            get_image_download_button(overlay_path, "detections_overlay.jpg", "Download Detections Image")
-                        else:
-                            st_warning("Could not display image comparison.")
-                    with img_cols[1]:
-                        st.markdown("<h6>Cropped Regions</h6>", unsafe_allow_html=True)
-                        if register_cropped and os.path.exists(register_cropped):
-                            st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                            st.image(register_cropped, caption="Register Number", use_container_width=True)
-                            st.markdown('</div>', unsafe_allow_html=True)
-                            get_image_download_button(register_cropped, "register_number_crop.jpg", "Download Register Crop")
-                        if subject_cropped and os.path.exists(subject_cropped):
-                            st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                            st.image(subject_cropped, caption="Subject Code", use_container_width=True)
-                            st.markdown('</div>', unsafe_allow_html=True)
-                            get_image_download_button(subject_cropped, 'subject_code_crop.jpg', 'Download Subject Crop')
-                        if not register_cropped and not subject_cropped:
-                            st_info("No regions cropped.")
+                    
+                    # SAVE RESULTS TO SESSION STATE
+                    st.session_state.results = {
+                        "results_list": results,
+                        "register_cropped": register_cropped,
+                        "subject_cropped": subject_cropped,
+                        "overlay_path": overlay_path,
+                        "processing_time": processing_time
+                    }
+                    st.rerun() # Rerun to display results
+                
                 except Exception as e:
                     progress_bar.empty()
                     status_placeholder.empty()
                     st_error(f"An unexpected error occurred during processing: {e}")
                     st_info("Please try again with a different image.")
+        
+        # Step 2: Display Results and Moodle Button (if results EXIST in session state)
+        if st.session_state.results:
+            # Load results from session state
+            results = st.session_state.results["results_list"]
+            register_cropped = st.session_state.results["register_cropped"]
+            subject_cropped = st.session_state.results["subject_cropped"]
+            overlay_path = st.session_state.results["overlay_path"]
+            processing_time = st.session_state.results["processing_time"]
+
+            st.markdown('<div class="result-card">', unsafe_allow_html=True)
+            st.subheader("📋 Extracted Information")
+            if results:
+                st.markdown('<div class="extracted-output">', unsafe_allow_html=True)
+                for label, value in results:
+                    st.markdown(f"**{label}:** `{value}`")
+                st.markdown('</div>', unsafe_allow_html=True)
+                results_file = save_results_to_file(results, f"results_{datetime.now().strftime('%Y%m%d%H%M%S')}")
+                if results_file and os.path.exists(results_file):
+                    with open(results_file, "rb") as file:
+                        st.download_button(
+                            label="📥 Download Results (.txt)",
+                            data=file,
+                            file_name="extracted_data.txt",
+                            mime="text/plain",
+                            key=f"download_results_{uuid.uuid4().hex}"
+                        )
+            else:
+                st_warning("Could not extract any information.")
+            st.markdown(f"<p style='text-align: right; font-size: 0.9em;'>Processing time: {processing_time:.2f} seconds</p>", unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # --- VVVV - MOODLE BUTTON (NOW IN THE CORRECT PLACE) - VVVV ---
+            if results: # Only show button if there are results
+                st.markdown("---")
+                st.subheader("🎓 Moodle Submission")
+                st.markdown(f"**Submit to Assignment ID:** `{ASSIGNMENT_ID}`") # Using var from function
+                
+                if st.button("🚀 Submit to Moodle", key="submit_moodle_btn", type="primary"):
+                    register_num = next((item[1] for item in results if item[0] == "Register Number"), "N/A")
+                    subject_code = next((item[1] for item in results if item[0] == "Subject Code"), "N/A")
+                    original_image_path = st.session_state.image_path
+                    
+                    if original_image_path and os.path.exists(original_image_path):
+                        with st.spinner("Submitting to Moodle..."):
+                            success = submit_to_moodle(original_image_path, register_num, subject_code)
+                            if not success:
+                                st_error("Submission failed. Check Moodle logs or terminal for details.")
+                    else:
+                        st_error("Could not find original image path to submit.")
+            # --- ^^^^ - END OF MOODLE BUTTON - ^^^^ ---
+
+            st.subheader("🔍 Visual Results")
+            img_cols = st.columns(2)
+            with img_cols[0]:
+                st.markdown("<h6>Original vs. Detections</h6>", unsafe_allow_html=True)
+                if st.session_state.image_path and overlay_path and os.path.exists(st.session_state.image_path) and os.path.exists(overlay_path):
+                    st.markdown('<div class="image-comparison-container">', unsafe_allow_html=True)
+                    image_comparison(
+                        img1=st.session_state.image_path,
+                        img2=overlay_path,
+                        label1="Original",
+                        label2="Detections"
+                    )
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    get_image_download_button(overlay_path, "detections_overlay.jpg", "Download Detections Image")
+                else:
+                    st_warning("Could not display image comparison.")
+            with img_cols[1]:
+                st.markdown("<h6>Cropped Regions</h6>", unsafe_allow_html=True)
+                if register_cropped and os.path.exists(register_cropped):
+                    st.markdown('<div class="image-container">', unsafe_allow_html=True)
+                    st.image(register_cropped, caption="Register Number", use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    get_image_download_button(register_cropped, "register_number_crop.jpg", "Download Register Crop")
+                if subject_cropped and os.path.exists(subject_cropped):
+                    st.markdown('<div class="image-container">', unsafe_allow_html=True)
+                    st.image(subject_cropped, caption="Subject Code", use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    get_image_download_button(subject_cropped, 'subject_code_crop.jpg', 'Download Subject Crop')
+                if not register_cropped and not subject_cropped:
+                    st_info("No regions cropped.")
+        
+        # --- ^^^^ - END OF REVISED LOGIC - ^^^^ ---
+        
         st.markdown('</div>', unsafe_allow_html=True)
 
     elif selected_tab == "History":
@@ -1058,7 +1111,7 @@ def main():
                         <p><strong>Results:</strong> {results_summary}</p>
                         <p><strong>Processing Time:</strong> {processing_time:.2f} sec</p>
                     </div>
-                    """, unsafe_allow_html=True) # Fixed 'untrue_allow_html' to 'unsafe_allow_html'
+                    """, unsafe_allow_html=True) # <-- Fixed typo: 'untrue_allow_html'
                 with hist_cols[1]:
                     if st.button("View Details", key=f"view_history_{i}"):
                         st.session_state.selected_history_item_index = i
@@ -1147,6 +1200,7 @@ def main():
                 <li><b>Object Detection:</b> A custom-trained YOLOv8 model identifies the locations of the relevant fields (Register Number, Subject Code) on the sheet.</li>
                 <li><b>Text Recognition (OCR):</b> Convolutional Recurrent Neural Network (CRNN) models are employed to read the characters within the detected regions. Separate CRNN models are optimized for recognizing digits (Register Number) and alphanumeric characters (Subject Code).</li>
                 <li><b>Web Interface:</b> Built with Streamlit, providing an interactive user interface for image upload, camera capture, and results visualization.</li>
+                <li><b>LMS Integration:</b> Uses Moodle Web Services (REST API) to upload the scanned image and submit it to an assignment.</li>
             </ul>
             """, unsafe_allow_html=True)
 
@@ -1160,7 +1214,7 @@ def main():
             <li>If using the camera, position the sheet clearly and click <b>Capture Image</b>.</li>
             <li>Once an image is loaded or captured, click <b>Extract Information</b>.</li>
             <li>View the extracted text, detection overlays, and cropped regions.</li>
-            <li><b>New:</b> Click <b>Submit to Moodle</b> to send your scan to the LMS.</li>
+            <li>Click <b>Submit to Moodle</b> to automatically send your answer sheet to the configured Moodle assignment.</li>
             <li>Check the <b>History</b> tab to review past scans.</li>
         </ol>
         """, unsafe_allow_html=True)
