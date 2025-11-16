@@ -208,10 +208,10 @@ def st_error(text):
     st.markdown(f'<div class="error-box">❌ {text}</div>', unsafe_allow_html=True)
 
 def st_info(text):
-    st.markdown(f'<div class="info-box">ℹ️ {text}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="info-box">ℹ {text}</div>', unsafe_allow_html=True)
 
 def st_warning(text):
-    st.markdown(f'<div class="warning-box">⚠️ {text}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="warning-box">⚠ {text}</div>', unsafe_allow_html=True)
 
 # ============================================
 # CRNN MODEL DEFINITION
@@ -278,42 +278,15 @@ class MoodleAPI:
         self.user_id = config["user_id"]
         self.timeout = config.get("timeout", 30)
     
-    def make_request(self, params: Dict, files: Optional[Dict] = None) -> Tuple[bool, Dict]:
-        """Make a request to Moodle API with proper error handling"""
-        try:
-            if files:
-                response = requests.post(self.url, params=params, files=files, timeout=self.timeout)
-            else:
-                response = requests.post(self.url, params=params, timeout=self.timeout)
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            if isinstance(data, dict) and "exception" in data:
-                error_msg = data.get("message", "Unknown Moodle error")
-                return False, {"error": error_msg, "details": data}
-            
-            return True, data
-            
-        except requests.exceptions.ConnectionError as e:
-            return False, {"error": "Connection Error", "details": f"Cannot connect to Moodle. Error: {str(e)}"}
-        except requests.exceptions.Timeout:
-            return False, {"error": "Timeout Error", "details": f"Request timed out after {self.timeout} seconds"}
-        except requests.exceptions.HTTPError as e:
-            return False, {"error": "HTTP Error", "details": f"HTTP {response.status_code}: {str(e)}"}
-        except json.JSONDecodeError:
-            return False, {"error": "Invalid Response", "details": "Server returned invalid JSON"}
-        except Exception as e:
-            return False, {"error": "Unexpected Error", "details": str(e)}
-    
     def upload_file(self, file_path: str) -> Tuple[bool, Optional[int], str]:
-        """Upload file to Moodle draft area using /webservice/upload.php endpoint"""
+        """Upload file to Moodle draft area"""
         if not os.path.exists(file_path):
             return False, None, f"File not found: {file_path}"
         
         filename = os.path.basename(file_path)
         
-        if filename.lower().endswith(('.pdf',)):
+        # Determine MIME type
+        if filename.lower().endswith('.pdf'):
             mimetype = 'application/pdf'
         elif filename.lower().endswith(('.jpg', '.jpeg')):
             mimetype = 'image/jpeg'
@@ -342,54 +315,82 @@ class MoodleAPI:
                     if itemid:
                         return True, itemid, "File uploaded successfully"
                     else:
-                        return False, None, "No item ID returned from upload"
+                        return False, None, "No item ID returned"
                 else:
-                    error_msg = result.get('message', 'Unexpected upload response format')
+                    error_msg = result.get('message', 'Unexpected response')
                     return False, None, error_msg
                     
         except Exception as e:
-            return False, None, f"File upload exception: {str(e)}"
+            return False, None, f"Upload exception: {str(e)}"
     
     def submit_assignment(self, itemid: int, register_num: str, subject_code: str) -> Tuple[bool, str]:
         """Submit assignment with uploaded file"""
-        # Try simpler submission first - just the file without text
-        submission_params = {
+        submission_data = {
             "wstoken": self.token,
             "wsfunction": "mod_assign_save_submission",
             "moodlewsrestformat": "json",
-            "assignmentid": self.assignment_id,
-            "plugindata[files_filemanager]": itemid
+            "assignmentid": str(self.assignment_id),
+            "plugindata[files_filemanager]": str(itemid),
+            "plugindata[onlinetext_editor][text]": f"""
+            <h3>📋 Answer Sheet Submission</h3>
+            <p><strong>Register Number:</strong> {register_num}</p>
+            <p><strong>Subject Code:</strong> {subject_code}</p>
+            <p><strong>Submitted:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}</p>
+            <p style="color: #999;">✨ Submitted via Smart Scanner App</p>
+            """,
+            "plugindata[onlinetext_editor][format]": "1"
         }
         
-        success, data = self.make_request(submission_params)
-        
-        if not success:
-            error_detail = data.get('details', {})
-            if isinstance(error_detail, dict):
-                error_msg = error_detail.get('message', data.get('error', 'Unknown error'))
-                debug_info = error_detail.get('debuginfo', '')
-                return False, f"Submission failed: {error_msg}. Debug: {debug_info}"
-            return False, f"Submission failed: {data.get('error', 'Unknown error')}"
-        
-        if data is None or (isinstance(data, list) and len(data) == 0):
-            return True, f"Assignment submitted successfully! (Register: {register_num}, Subject: {subject_code})"
-        
-        if isinstance(data, dict) and "warnings" in data:
-            warnings = data["warnings"]
-            if warnings:
-                return True, f"Submitted with warnings: {warnings}"
-        
-        return True, f"Assignment submitted successfully! (Register: {register_num}, Subject: {subject_code})"
+        try:
+            response = requests.post(
+                self.url,
+                data=submission_data,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            # Check for errors
+            if isinstance(result, dict) and "exception" in result:
+                return False, f"Moodle error: {result.get('message', 'Unknown error')}"
+            
+            # Empty array = success
+            if result is None or (isinstance(result, list) and len(result) == 0):
+                return True, "Assignment submitted successfully!"
+            
+            # Check warnings
+            if isinstance(result, dict) and "warnings" in result:
+                if result["warnings"]:
+                    return True, f"Submitted with warnings: {result['warnings']}"
+            
+            return True, "Assignment submitted successfully!"
+            
+        except Exception as e:
+            return False, f"Submission error: {str(e)}"
     
     def get_submission_status(self) -> Tuple[bool, Dict]:
         """Get current submission status"""
-        params = {
-            "wstoken": self.token,
-            "wsfunction": "mod_assign_get_submissions",
-            "moodlewsrestformat": "json",
-            "assignmentids[0]": self.assignment_id
-        }
-        return self.make_request(params)
+        try:
+            params = {
+                "wstoken": self.token,
+                "wsfunction": "mod_assign_get_submissions",
+                "moodlewsrestformat": "json",
+                "assignmentids[0]": str(self.assignment_id)
+            }
+            
+            response = requests.post(self.url, data=params, timeout=self.timeout)
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            if isinstance(result, dict) and "exception" in result:
+                return False, {"error": result.get("message", "Unknown error")}
+            
+            return True, result
+            
+        except Exception as e:
+            return False, {"error": str(e)}
 
 def submit_to_moodle_workflow(image_path: str, register_number: str, subject_code: str) -> Tuple[bool, str]:
     """Complete workflow for submitting to Moodle"""
@@ -420,7 +421,7 @@ def submit_to_moodle_workflow(image_path: str, register_number: str, subject_cod
 # ============================================
 class AnswerSheetExtractor:
     def __init__(self, yolo_improved_path, yolo_fallback_path, register_crnn_path, subject_crnn_path):
-        self.script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else "."
+        self.script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
         
         for dir_name in ["cropped_register_numbers", "cropped_subject_codes", "results", "uploads", "captures"]:
             os.makedirs(os.path.join(self.script_dir, dir_name), exist_ok=True)
@@ -536,7 +537,7 @@ class AnswerSheetExtractor:
             cropped_region = image[padded_y1:padded_y2, padded_x1:padded_x2]
             save_dir = os.path.join(self.script_dir, 
                                    "cropped_register_numbers" if label == "RegisterNumber" else "cropped_subject_codes")
-            save_path = os.path.join(save_dir, f"{label.lower()}_{model_name}_{uuid.uuid4().hex}.jpg")
+            save_path = os.path.join(save_dir, f"{label.lower()}{model_name}{uuid.uuid4().hex}.jpg")
             cv2.imwrite(save_path, cropped_region)
             
             if label == "RegisterNumber" and confidence > 0.2:
@@ -628,7 +629,7 @@ class AnswerSheetExtractor:
             results.append(("Register Number", register_number))
             st.success(f"Register Number: {register_number} (Confidence: {best_register[1]:.2f})")
         else:
-            st.warning("⚠️ No Register Number detected")
+            st.warning("⚠ No Register Number detected")
         
         if best_subject:
             with st.spinner("📝 Extracting Subject Code..."):
@@ -636,7 +637,7 @@ class AnswerSheetExtractor:
             results.append(("Subject Code", subject_code))
             st.success(f"Subject Code: {subject_code} (Confidence: {best_subject[1]:.2f})")
         else:
-            st.warning("⚠️ No Subject Code detected")
+            st.warning("⚠ No Subject Code detected")
         
         processing_time = time.time() - start_time
         
@@ -660,7 +661,7 @@ class AnswerSheetExtractor:
 @st.cache_resource
 def load_extractor():
     try:
-        script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else "."
+        script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
         
         model_files = {
             'yolo_improved': 'improved_weights.pt',
@@ -748,7 +749,7 @@ def display_header():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def save_results_to_file(results, filename_prefix="results"):
-    script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else "."
+    script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
     results_dir = os.path.join(script_dir, "results")
     os.makedirs(results_dir, exist_ok=True)
     
@@ -772,7 +773,7 @@ def get_image_download_button(image_path, filename, button_text):
                     data=file,
                     file_name=filename,
                     mime="image/jpeg",
-                    key=f"download_{filename.replace('.', '_')}_{uuid.uuid4().hex}"
+                    key=f"download_{filename.replace('.', '')}{uuid.uuid4().hex}"
                 )
         except Exception as e:
             st.error(f"Download button error: {e}")
@@ -816,7 +817,7 @@ def main():
         if not st.session_state.extraction_complete:
             col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("⬆️ Upload Image", use_container_width=True, key="btn_upload"):
+                if st.button("⬆ Upload Image", use_container_width=True, key="btn_upload"):
                     st.session_state.input_method = "Upload Image"
                     st.session_state.image_path = None
                     st.session_state.image_captured = False
@@ -865,7 +866,7 @@ def main():
             )
             
             if uploaded_file:
-                script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else "."
+                script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
                 uploads_dir = os.path.join(script_dir, "uploads")
                 os.makedirs(uploads_dir, exist_ok=True)
                 
@@ -906,7 +907,7 @@ def main():
                 capture_disabled = not (ctx.state.playing and ctx.video_processor)
                 if st.button("📸 Capture Image", disabled=capture_disabled, use_container_width=True, key="btn_capture"):
                     if ctx.video_processor and hasattr(ctx.video_processor, 'frame') and ctx.video_processor.frame is not None:
-                        script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in locals() else "."
+                        script_dir = os.path.dirname(os.path.abspath(_file)) if "file_" in locals() else "."
                         captures_dir = os.path.join(script_dir, "captures")
                         os.makedirs(captures_dir, exist_ok=True)
                         temp_path = os.path.join(captures_dir, f"capture_{uuid.uuid4().hex}.jpg")
@@ -992,7 +993,7 @@ def main():
             if results:
                 st.markdown('<div class="extracted-output">', unsafe_allow_html=True)
                 for label, value in results:
-                    st.markdown(f"**{label}:** `{value}`")
+                    st.markdown(f"{label}:** {value}")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
                 # Download results
@@ -1009,7 +1010,7 @@ def main():
             else:
                 st.warning("No information could be extracted")
             
-            st.markdown(f"<p style='text-align: right;'>⏱️ Processing time: {processing_time:.2f}s</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: right;'>⏱ Processing time: {processing_time:.2f}s</p>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
             
             # Moodle submission
@@ -1018,7 +1019,7 @@ def main():
                 
                 col1, col2 = st.columns([2, 1])
                 with col1:
-                    st.info(f"**Assignment ID:** {MOODLE_CONFIG['assignment_id']} | **User ID:** {MOODLE_CONFIG['user_id']}")
+                    st.info(f"*Assignment ID:* {MOODLE_CONFIG['assignment_id']} | *User ID:* {MOODLE_CONFIG['user_id']}")
                 with col2:
                     if st.button("🚀 Submit to Moodle", type="primary", use_container_width=True, key="btn_submit_moodle"):
                         register_num = next((item[1] for item in results if item[0] == "Register Number"), "N/A")
@@ -1043,11 +1044,11 @@ def main():
                             st.error("Image file not found")
             
             # Visual results
-            st.markdown("### 🖼️ Visual Results")
+            st.markdown("### 🖼 Visual Results")
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown("**Original vs Detections**")
+                st.markdown("*Original vs Detections*")
                 if st.session_state.image_path and overlay_path:
                     if os.path.exists(st.session_state.image_path) and os.path.exists(overlay_path):
                         image_comparison(
@@ -1059,7 +1060,7 @@ def main():
                         get_image_download_button(overlay_path, "detections.jpg", "📥 Download Detections")
             
             with col2:
-                st.markdown("**Cropped Regions**")
+                st.markdown("*Cropped Regions*")
                 if register_cropped and os.path.exists(register_cropped):
                     st.image(register_cropped, caption="Register Number")
                     get_image_download_button(register_cropped, "register.jpg", "📥 Download")
@@ -1085,7 +1086,7 @@ def main():
                     results = item.get("results", [])
                     if results:
                         for label, value in results:
-                            st.markdown(f"**{label}:** `{value}`")
+                            st.markdown(f"{label}:** {value}")
                     else:
                         st.info("No results extracted")
                     
@@ -1097,7 +1098,7 @@ def main():
                     
                     with col1:
                         if original_path and overlay_path and os.path.exists(original_path) and os.path.exists(overlay_path):
-                            st.markdown("**Original vs Detections**")
+                            st.markdown("*Original vs Detections*")
                             image_comparison(img1=original_path, img2=overlay_path, label1="Original", label2="Detections")
                     
                     with col2:
@@ -1113,23 +1114,23 @@ def main():
     # SETTINGS TAB
     # ============================================
     elif selected_tab == "Settings":
-        st.markdown("### ⚙️ Moodle Configuration")
+        st.markdown("### ⚙ Moodle Configuration")
         
-        st.info("Current Moodle settings are configured in the code. Update the `MOODLE_CONFIG` dictionary to change these values.")
+        st.info("Current Moodle settings are configured in the code. Update the MOODLE_CONFIG dictionary to change these values.")
         
-        st.markdown("**Current Configuration:**")
+        st.markdown("*Current Configuration:*")
         st.json(MOODLE_CONFIG)
         
         st.markdown("---")
         st.markdown("### 📝 How to Update Configuration")
         st.markdown("""
         1. Open the Python script in a text editor
-        2. Find the `MOODLE_CONFIG` dictionary at the top of the file
+        2. Find the MOODLE_CONFIG dictionary at the top of the file
         3. Update the following values:
-           - `url`: Your Moodle webservice REST API URL
-           - `token`: Your Moodle webservice token
-           - `assignment_id`: The ID of the assignment to submit to
-           - `user_id`: Your Moodle user ID
+           - url: Your Moodle webservice REST API URL
+           - token: Your Moodle webservice token
+           - assignment_id: The ID of the assignment to submit to
+           - user_id: Your Moodle user ID
         4. Save the file and restart the Streamlit app
         """)
         
@@ -1152,7 +1153,7 @@ def main():
     # ABOUT TAB
     # ============================================
     elif selected_tab == "About":
-        st.markdown("### ℹ️ About Smart Answer Sheet Scanner")
+        st.markdown("### ℹ About Smart Answer Sheet Scanner")
         
         col1, col2 = st.columns([1, 3])
         with col1:
@@ -1166,26 +1167,26 @@ def main():
         st.markdown("---")
         st.markdown("#### 🔧 Technologies Used")
         st.markdown("""
-        - **YOLOv8**: Object detection for locating fields on answer sheets
-        - **CRNN**: Text recognition for reading register numbers and subject codes
-        - **Streamlit**: Web interface framework
-        - **Moodle Web Services**: REST API integration for LMS submission
-        - **PyTorch**: Deep learning framework
-        - **OpenCV**: Image processing
+        - *YOLOv8*: Object detection for locating fields on answer sheets
+        - *CRNN*: Text recognition for reading register numbers and subject codes
+        - *Streamlit*: Web interface framework
+        - *Moodle Web Services*: REST API integration for LMS submission
+        - *PyTorch*: Deep learning framework
+        - *OpenCV*: Image processing
         """)
         
         st.markdown("---")
         st.markdown("#### 📖 How to Use")
         st.markdown("""
-        1. **Scan Tab**: Upload or capture an answer sheet image
-        2. **Extract**: Click "Extract Information" to process the image
-        3. **Review**: Check the extracted register number and subject code
-        4. **Submit**: Click "Submit to Moodle" to upload to your LMS
-        5. **History**: View past scans and results
+        1. *Scan Tab*: Upload or capture an answer sheet image
+        2. *Extract*: Click "Extract Information" to process the image
+        3. *Review*: Check the extracted register number and subject code
+        4. *Submit*: Click "Submit to Moodle" to upload to your LMS
+        5. *History*: View past scans and results
         """)
         
         st.markdown("---")
-        st.markdown("#### ⚠️ Important Notes")
+        st.markdown("#### ⚠ Important Notes")
         st.warning("""
         - Ensure model files are in the same directory as the script
         - Configure Moodle settings before submission
@@ -1196,17 +1197,17 @@ def main():
         st.markdown("---")
         st.markdown("#### 📦 Required Model Files")
         st.markdown("""
-        - `improved_weights.pt` - Primary YOLO model
-        - `weights.pt` - Fallback YOLO model
-        - `best_crnn_model.pth` - Register number recognition
-        - `best_subject_code_model.pth` - Subject code recognition
+        - improved_weights.pt - Primary YOLO model
+        - weights.pt - Fallback YOLO model
+        - best_crnn_model.pth - Register number recognition
+        - best_subject_code_model.pth - Subject code recognition
         """)
     
     # Footer
     st.markdown("---")
     st.markdown('<div class="footer">', unsafe_allow_html=True)
-    st.markdown("© 2025 Smart Answer Sheet Scanner | Built with Streamlit & ❤️", unsafe_allow_html=True)
+    st.markdown("© 2025 Smart Answer Sheet Scanner | Built with Streamlit & ❤", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
