@@ -19,7 +19,7 @@ import requests  # <-- Make sure this is imported
 
 # --- VVVV - MOODLE CONFIGURATION - VVVV ---
 # Moved here to be global constants
-MOODLE_URL = "https://8643866ef5e3.ngrok-free.app/webservice/rest/server.php"
+MOODLE_URL = "https://05f244c11755.ngrok-free.app/webservice/rest/server.php"
 MOODLE_TOKEN = "c53569d516cd601cb78849cd64f59eaa" 
 ASSIGNMENT_ID = 2  
 USER_ID = 2 
