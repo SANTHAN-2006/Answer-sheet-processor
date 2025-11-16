@@ -15,7 +15,7 @@ from streamlit_option_menu import option_menu
 from streamlit_image_comparison import image_comparison
 from datetime import datetime
 import json
-import requests  # <-- Make sure this is imported
+import requests  # <-- FIXED: Removed invalid character
 
 # Set page configuration
 st.set_page_config(
@@ -255,7 +255,7 @@ if 'webrtc_key' not in st.session_state:
     st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
 if 'input_method' not in st.session_state:
     st.session_state.input_method = "Upload Image"
-if 'results' not in st.session_state: # <-- NEW: To store extraction results
+if 'results' not in st.session_state:
     st.session_state.results = None
 
 # Define CRNN model
@@ -672,7 +672,7 @@ def save_results_to_file(results, filename_prefix="results"):
         st_error(f"Failed to save results to {filepath}: {e}")
         return None
 
-# --- VVVV - NEW MOODLE SUBMISSION FUNCTION - VVVV ---
+# --- VVVV - MOODLE SUBMISSION FUNCTION - VVVV ---
 def submit_to_moodle(image_path, register_number, subject_code):
     
     # --- VVVV - IMPORTANT: CONFIGURE THESE 4 VALUES - VVVV ---
@@ -787,7 +787,7 @@ def submit_to_moodle(image_path, register_number, subject_code):
         if 'response_submit' in locals():
             st_error(f"Response text: {response_submit.text}")
         return False
-# --- ^^^^ - END OF NEW MOODLE FUNCTION - ^^^^ ---
+# --- ^^^^ - END OF MOODLE FUNCTION - ^^^^ ---
 
 
 # Main app
@@ -835,21 +835,21 @@ def main():
             st.session_state.image_path = None
             st.session_state.image_captured = False
             st.session_state.selected_history_item_index = None
-            st.session_state.results = None  # <-- NEW: Reset results
+            st.session_state.results = None  # <-- Reset results
             st.rerun()
         if st.button("📸 Use Camera", key="use_camera_btn"):
             st.session_state.input_method = "Use Camera"
             st.session_state.image_path = None
             st.session_state.image_captured = False
             st.session_state.selected_history_item_index = None
-            st.session_state.results = None  # <-- NEW: Reset results
+            st.session_state.results = None  # <-- Reset results
             st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
             st.rerun()
         if st.button("🔄 Reset Scan", key="reset_btn_scan"):
             st.session_state.image_path = None
             st.session_state.image_captured = False
             st.session_state.selected_history_item_index = None
-            st.session_state.results = None  # <-- NEW: Reset results
+            st.session_state.results = None  # <-- Reset results
             st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
             st.session_state.input_method = "Upload Image"
             st_info("Scan reset. Upload an image or use the camera.")
@@ -876,9 +876,10 @@ def main():
                         st.session_state.image_path = temp_path
                         st.session_state.image_captured = True
                         st.session_state.selected_history_item_index = None
-                        st.session_state.results = None # <-- NEW: Reset results
+                        st.session_state.results = None # <-- Reset results
                         st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                        st.image(st.session_state.image_path, caption="Uploaded Image", use_container_width=True)
+                        # FIXED: Replaced use_container_width
+                        st.image(st.session_state.image_path, caption="Uploaded Image", width=None, use_column_width='auto') 
                         st.markdown('</div>', unsafe_allow_html=True)
                     except Exception as e:
                         st_error(f"Error saving uploaded file: {e}")
@@ -933,7 +934,7 @@ def main():
                                 st.session_state.image_path = temp_path
                                 st.session_state.image_captured = True
                                 st.session_state.selected_history_item_index = None
-                                st.session_state.results = None # <-- NEW: Reset results
+                                st.session_state.results = None # <-- Reset results
                                 st_success("Image captured successfully!")
                                 st.rerun()
                             except Exception as e:
@@ -947,12 +948,13 @@ def main():
                 elif st.session_state.image_path and os.path.exists(st.session_state.image_path):
                     st.markdown("<h4>Captured Image</h4>", unsafe_allow_html=True)
                     st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                    st.image(st.session_state.image_path, caption="Captured Image", use_container_width=True)
+                    # FIXED: Replaced use_container_width
+                    st.image(st.session_state.image_path, caption="Captured Image", width=None, use_column_width='auto')
                     st.markdown('</div>', unsafe_allow_html=True)
                     if st.button("🔄 Recapture Image", key="recapture_btn"):
                         st.session_state.image_captured = False
                         st.session_state.image_path = None
-                        st.session_state.results = None # <-- NEW: Reset results
+                        st.session_state.results = None # <-- Reset results
                         st.session_state.webrtc_key = f"webrtc_{uuid.uuid4().hex}"
                         st.rerun()
                 else:
@@ -964,13 +966,13 @@ def main():
                 st.markdown('</div>', unsafe_allow_html=True)
 
         
-        # --- VVVV - REVISED LOGIC TO FIX DISAPPEARING BUTTON - VVVV ---
+        # --- VVVV - REVISED LOGIC TO FIX RESTART LOOP - VVVV ---
         
         # Step 1: Show Extract Button if we have an image but NO results yet
         if (st.session_state.image_path and 
             st.session_state.image_captured and 
             st.session_state.selected_history_item_index is None and
-            st.session_state.results is None): # <-- Only show if results aren't computed
+            st.session_state.results is None):
             
             st.markdown("---")
             if st.button("🔍 Extract Information", key="extract_btn", type="primary"):
@@ -994,7 +996,7 @@ def main():
                         "overlay_path": overlay_path,
                         "processing_time": processing_time
                     }
-                    st.rerun() # Rerun to display results
+                    # st.rerun() # <-- REMOVED THIS LINE. THIS WAS THE ERROR.
                 
                 except Exception as e:
                     progress_bar.empty()
@@ -1033,11 +1035,11 @@ def main():
             st.markdown(f"<p style='text-align: right; font-size: 0.9em;'>Processing time: {processing_time:.2f} seconds</p>", unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # --- VVVV - MOODLE BUTTON (NOW IN THE CORRECT PLACE) - VVVV ---
-            if results: # Only show button if there are results
+            # --- MOODLE BUTTON ---
+            if results: 
                 st.markdown("---")
                 st.subheader("🎓 Moodle Submission")
-                st.markdown(f"**Submit to Assignment ID:** `{ASSIGNMENT_ID}`") # Using var from function
+                st.markdown(f"**Submit to Assignment ID:** `{ASSIGNMENT_ID}`") 
                 
                 if st.button("🚀 Submit to Moodle", key="submit_moodle_btn", type="primary"):
                     register_num = next((item[1] for item in results if item[0] == "Register Number"), "N/A")
@@ -1051,8 +1053,7 @@ def main():
                                 st_error("Submission failed. Check Moodle logs or terminal for details.")
                     else:
                         st_error("Could not find original image path to submit.")
-            # --- ^^^^ - END OF MOODLE BUTTON - ^^^^ ---
-
+            
             st.subheader("🔍 Visual Results")
             img_cols = st.columns(2)
             with img_cols[0]:
@@ -1073,12 +1074,14 @@ def main():
                 st.markdown("<h6>Cropped Regions</h6>", unsafe_allow_html=True)
                 if register_cropped and os.path.exists(register_cropped):
                     st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                    st.image(register_cropped, caption="Register Number", use_container_width=True)
+                    # FIXED: Replaced use_container_width
+                    st.image(register_cropped, caption="Register Number", width=None, use_column_width='auto')
                     st.markdown('</div>', unsafe_allow_html=True)
                     get_image_download_button(register_cropped, "register_number_crop.jpg", "Download Register Crop")
                 if subject_cropped and os.path.exists(subject_cropped):
                     st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                    st.image(subject_cropped, caption="Subject Code", use_container_width=True)
+                    # FIXED: Replaced use_container_width
+                    st.image(subject_cropped, caption="Subject Code", width=None, use_column_width='auto')
                     st.markdown('</div>', unsafe_allow_html=True)
                     get_image_download_button(subject_cropped, 'subject_code_crop.jpg', 'Download Subject Crop')
                 if not register_cropped and not subject_cropped:
@@ -1111,7 +1114,7 @@ def main():
                         <p><strong>Results:</strong> {results_summary}</p>
                         <p><strong>Processing Time:</strong> {processing_time:.2f} sec</p>
                     </div>
-                    """, unsafe_allow_html=True) # <-- Fixed typo: 'untrue_allow_html'
+                    """, unsafe_allow_html=True)
                 with hist_cols[1]:
                     if st.button("View Details", key=f"view_history_{i}"):
                         st.session_state.selected_history_item_index = i
@@ -1167,14 +1170,16 @@ def main():
                     st.markdown("<u>Cropped Regions:</u>", unsafe_allow_html=True)
                     if register_cropped_path and os.path.exists(register_cropped_path):
                         st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                        st.image(register_cropped_path, caption="Register Number (Cropped)", use_container_width=True)
+                        # FIXED: Replaced use_container_width
+                        st.image(register_cropped_path, caption="Register Number (Cropped)", width=None, use_column_width='auto')
                         st.markdown('</div>', unsafe_allow_html=True)
                     else:
                         st.markdown("<p>No Register Number crop.</p>", unsafe_allow_html=True)
 
                     if subject_cropped_path and os.path.exists(subject_cropped_path):
                         st.markdown('<div class="image-container">', unsafe_allow_html=True)
-                        st.image(subject_cropped_path, caption="Subject Code (Cropped)", use_container_width=True)
+                        # FIXED: Replaced use_container_width
+                        st.image(subject_cropped_path, caption="Subject Code (Cropped)", width=None, use_column_width='auto')
                         st.markdown('</div>', unsafe_allow_html=True)
                     else:
                         st.markdown("<p>No Subject Code crop.</p>", unsafe_allow_html=True)
